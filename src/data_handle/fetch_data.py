@@ -4,6 +4,8 @@ import zipfile
 from tqdm import tqdm
 import logging
 from dotenv import load_dotenv
+import shutil
+import sys
 
 # Load environment variables from .env file
 load_dotenv()
@@ -58,12 +60,41 @@ def fetch_bus_dataset(output_path):
     os.remove(filename)
 
 
+def fetch_vindr_dataset(output_path):
+    import kagglehub
+    os.environ["KAGGLE_CONFIG"] = os.path.join(os.path.dirname(__file__), "./kaggle/kaggle.json")
+    # Download latest version
+    path = kagglehub.dataset_download("shantanughosh/vindr-mammogram-dataset-dicom-to-png")
+    logger.info(f"Downloaded dataset to {path}")
+
+    
+def move_dataset(path, output_path):
+    # Move the dataset to the output path
+    os.makedirs(output_path, exist_ok=True)
+    for item in os.listdir(path):
+        src = os.path.join(path, item)
+        dst = os.path.join(output_path, item)
+        if os.path.exists(dst):
+            if os.path.isdir(dst):
+                shutil.rmtree(dst)
+            else:
+                os.remove(dst)
+        shutil.move(src, dst)
+    os.rmdir(path)
+    logger.info(f"Moved dataset to {output_path}")
+
+
+
 def main():
     output_path = 'data'
+    path = "/home/codespace/.cache/kagglehub/datasets/shantanughosh/vindr-mammogram-dataset-dicom-to-png/versions/1"
     os.makedirs(output_path, exist_ok=True)
 
     fetch_bus_dataset(output_path)
     fetch_bus_images_dataset(output_path)
+    fetch_vindr_dataset(output_path)
+    # Move the dataset to the output path
+    move_dataset(path, output_path)
 
 
 if __name__ == "__main__":
