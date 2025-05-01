@@ -13,7 +13,7 @@ FINDING_METADATA_PATH = os.path.join(VINDR_MAMMO_ORIGINAL_PATH, 'finding_annotat
 # METADATA_CSV_PATH = os.path.join(VINDR_MAMMO_ORIGINAL_PATH, 'metadata.csv') # Optional: for image details
 
 # Set the base path for the new organized dataset structure
-ORGANIZED_DATASET_BASE_PATH = './organized_multimodal_dataset/vindr_mammo' # Specific path for VinDr-Mammo
+ORGANIZED_DATASET_BASE_PATH = './mmibc/vindr_mammo' # Specific path for VinDr-Mammo
 ORGANIZED_METADATA_FILE = os.path.join(ORGANIZED_DATASET_BASE_PATH, 'vindr_mammo_metadata.csv') # Output metadata file
 
 # Define split ratios for splitting the *original training data* into our train/validation sets
