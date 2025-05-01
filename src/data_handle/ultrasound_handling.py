@@ -69,8 +69,64 @@ def check_img_shape(input_dir):
                     logger.error(f"Error processing {img_file}: {str(e)}")
 
 
+def organize_images_and_masks(source_dir, images_dir, masks_dir):
+    """
+    Move images and masks to separate directories while preserving class labels.
+    
+    Args:
+        source_dir: Directory containing the original dataset with class folders
+        images_dir: Target directory for all images, organized by class
+        masks_dir: Target directory for all masks, organized by class
+    """
+    # Create main directories
+    os.makedirs(images_dir, exist_ok=True)
+    os.makedirs(masks_dir, exist_ok=True)
+    
+    logger.info(f"Organizing files from {source_dir} to {images_dir} and {masks_dir}")
+    
+    # Process each class directory
+    for class_name in os.listdir(source_dir):
+        class_path = os.path.join(source_dir, class_name)
+        
+        # Skip if not a directory
+        if not os.path.isdir(class_path):
+            continue
+            
+        # Create class directories in target locations
+        class_images_dir = os.path.join(images_dir, class_name)
+        class_masks_dir = os.path.join(masks_dir, class_name)
+        os.makedirs(class_images_dir, exist_ok=True)
+        os.makedirs(class_masks_dir, exist_ok=True)
+        
+        logger.info(f"Processing class: {class_name}")
+        
+        # Process files in this class directory
+        for filename in os.listdir(class_path):
+            src_path = os.path.join(class_path, filename)
+            
+            # Skip directories
+            if os.path.isdir(src_path):
+                continue
+                
+            # Check if it's a mask file
+            if '_mask' in filename and (filename.endswith('.png') or filename.endswith('.jpg')):
+                dst_path = os.path.join(class_masks_dir, filename)
+                logger.info(f"Copying mask: {filename} to {class_name} masks")
+                shutil.copy(src_path, dst_path)
+            
+            # Check if it's a regular image (but not a mask)
+            elif (filename.endswith('.png') or filename.endswith('.jpg')) and '_mask' not in filename:
+                dst_path = os.path.join(class_images_dir, filename)
+                logger.info(f"Copying image: {filename} to {class_name} images")
+                shutil.copy(src_path, dst_path)
 
 
 if __name__ == "__main__":
     # convert_tmp_to_img("data/originals", "data/ultrasound-2")
-    check_img_shape("data/Dataset_BUSI_with_GT")
+    check_img_shape("data/ultrasound-2")
+    check_img_shape("data/ultrasound/images")
+    # organize_images_and_masks(
+    #     "data/Dataset_BUSI_with_GT",
+    #     "data/ultrasound/images",
+    #     "data/ultrasound/masks"
+    # )
