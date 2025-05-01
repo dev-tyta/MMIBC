@@ -1,4 +1,16 @@
-import 
+from huggingface_hub import HfApi, create_repo
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Set the base path for the new organized dataset structure
+ORGANIZED_DATASET_BASE_PATH = './organized_multimodal_dataset'
+
+# Hugging Face configuration
+HF_REPO_NAME = 'your-username/multimodal-breast-cancer-imaging' # Replace with your Hugging Face username and desired repo name
+HF_TOKEN = os.getenv('HF_TOKEN')  # Ensure you have set this in your environment variables
 
 # --- Hugging Face Upload Function ---
 def upload_to_huggingface(local_folder_path, repo_id, token):
