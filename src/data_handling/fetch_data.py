@@ -60,12 +60,15 @@ def fetch_bus_dataset(output_path):
     os.remove(filename)
 
 
-def fetch_vindr_dataset(output_path):
+
+
+def fetch_vindr_metadata(output_path):
     import kagglehub
     os.environ["KAGGLE_CONFIG"] = os.path.join(os.path.dirname(__file__), "./kaggle/kaggle.json")
     # Download latest version
-    path = kagglehub.dataset_download("shantanughosh/vindr-mammogram-dataset-dicom-to-png")
+    path = kagglehub.dataset_download("truthisneverlinear/vindr-mammo-annotations")
     logger.info(f"Downloaded dataset to {path}")
+    move_dataset(path, output_path)
 
     
 def move_dataset(path, output_path):
@@ -83,6 +86,13 @@ def move_dataset(path, output_path):
     os.rmdir(path)
     logger.info(f"Moved dataset to {output_path}")
 
+def fetch_vindr_dataset(output_path):
+    import kagglehub
+    os.environ["KAGGLE_CONFIG"] = os.path.join(os.path.dirname(__file__), "./kaggle/kaggle.json")
+    # Download latest version
+    path = kagglehub.dataset_download("shantanughosh/vindr-mammogram-dataset-dicom-to-png")
+    logger.info(f"Downloaded dataset to {path}")
+    move_dataset(path, output_path)
 
 
 def main():
@@ -90,11 +100,12 @@ def main():
     path = "/home/codespace/.cache/kagglehub/datasets/shantanughosh/vindr-mammogram-dataset-dicom-to-png/versions/1"
     os.makedirs(output_path, exist_ok=True)
 
-    fetch_bus_dataset(output_path)
-    fetch_bus_images_dataset(output_path)
-    fetch_vindr_dataset(output_path)
+    # fetch_bus_dataset(output_path)
+    # fetch_bus_images_dataset(output_path)
+    # fetch_vindr_dataset(output_path)
     # Move the dataset to the output path
-    move_dataset(path, output_path)
+    # move_dataset(path, output_path)
+    fetch_vindr_metadata(output_path="data")
 
 
 if __name__ == "__main__":

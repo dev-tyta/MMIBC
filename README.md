@@ -11,4 +11,4 @@ For the Dataset Collation part, since I'm making use of ultrasound datasets and 
 - Pham, H. H., Nguyen Trung, H., & Nguyen, H. Q. (2022). VinDr-Mammo: A large-scale benchmark dataset for computer-aided detection and diagnosis in full-field digital mammography (version 1.0.0). PhysioNet. https://doi.org/10.13026/br2v-7517. Got the processed dataset from [kaggle](https://www.kaggle.com/datasets/ssmann/vindr-mammo-dataset/data?select=Processed_Images)
 
 ## Data Processing and SetUp
-
+* Pushing Dataset to Huggingface in order to access easily from Google Colab or Kaggle
