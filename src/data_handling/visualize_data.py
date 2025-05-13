@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import random
+import os
+from PIL import Image
 
 def visualize_samples(images_dir, masks_dir, num_samples=3):
     """Plot image-mask pairs to verify alignment."""
