@@ -5,7 +5,7 @@ from sklearn.model_selection import train_test_split
 
 # --- Configuration ---
 # Set the base path for your downloaded VinDr-Mammo dataset
-VINDR_MAMMO_ORIGINAL_PATH = './data/mammo' # Adjust this path if needed
+VINDR_MAMMO_ORIGINAL_PATH = os.path.expanduser('~/data/mammo') # Adjust this path if needed
 
 # Paths to the VinDr-Mammo metadata files
 BREAST_LEVEL_METADATA_PATH = os.path.join(VINDR_MAMMO_ORIGINAL_PATH, 'breast-level_annotations.csv')
@@ -13,7 +13,7 @@ FINDING_METADATA_PATH = os.path.join(VINDR_MAMMO_ORIGINAL_PATH, 'finding_annotat
 # METADATA_CSV_PATH = os.path.join(VINDR_MAMMO_ORIGINAL_PATH, 'metadata.csv') # Optional: for image details
 
 # Set the base path for the new organized dataset structure
-ORGANIZED_DATASET_BASE_PATH = './mmibc/vindr_mammo' # Specific path for VinDr-Mammo
+ORGANIZED_DATASET_BASE_PATH = os.path.expanduser('~/mmibc/mammo') # Specific path for VinDr-Mammo
 ORGANIZED_METADATA_FILE = os.path.join(ORGANIZED_DATASET_BASE_PATH, 'vindr_mammo_metadata.csv') # Output metadata file
 
 # Define split ratios for splitting the *original training data* into our train/validation sets
@@ -68,7 +68,7 @@ def get_image_labels_and_paths(original_data_path, breast_metadata_path, finding
 
             # Construct the full path to the image file
             # Assuming .png extension based on SHA256SUMS, adjust if necessary (e.g., .dicom)
-            image_file_path = os.path.join(original_data_path, 'images', study_id, f'{image_id}.png')
+            image_file_path = os.path.join(original_data_path, 'images', str(study_id), f'{str(image_id)}.png')
 
 
             if os.path.exists(image_file_path):
@@ -96,7 +96,7 @@ def get_image_labels_and_paths(original_data_path, breast_metadata_path, finding
             label = 0 if row['breast_birads'] in ['BI-RADS 1', 'BI-RADS 2', 'BI-RADS 3'] else -1 # Use -1 for uncertain
 
             if label != -1:
-                 image_file_path = os.path.join(original_data_path, 'images', study_id, f'{image_id}.png')
+                 image_file_path = os.path.join(original_data_path, 'images', str(study_id), f'{image_id}.png')
                  if os.path.exists(image_file_path):
                      image_info_list.append({
                          'image_id': image_id,
@@ -121,7 +121,7 @@ def get_image_labels_and_paths(original_data_path, breast_metadata_path, finding
              original_split = row['split']
              label = int(row['is_malignant_finding']) # Label is 1 if malignant finding, 0 otherwise
 
-             image_file_path = os.path.join(original_data_path, 'images', study_id, f'{image_id}.png')
+             image_file_path = os.path.join(original_data_path, 'images', str(study_id), f'{image_id}.png')
              if os.path.exists(image_file_path):
                  image_info_list.append({
                      'image_id': image_id,
@@ -304,8 +304,3 @@ if __name__ == "__main__":
         print("\nVinDr-Mammo data preparation complete.")
     else:
         print("\nVinDr-Mammo data preparation failed due to issues processing metadata or finding images.")
-
-    # Note: This script only handles VinDr-Mammo.
-    # You would run similar scripts for BUSI and KAU-BCMD,
-    # and then a separate script to combine/upload to Hugging Face.
-

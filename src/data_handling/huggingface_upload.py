@@ -6,10 +6,10 @@ import os
 load_dotenv()
 
 # Set the base path for the new organized dataset structure
-ORGANIZED_DATASET_BASE_PATH = './organized_multimodal_dataset'
+ORGANIZED_DATASET_BASE_PATH = os.path.expanduser('~/mmibc')
 
 # Hugging Face configuration
-HF_REPO_NAME = 'your-username/multimodal-breast-cancer-imaging' # Replace with your Hugging Face username and desired repo name
+HF_REPO_NAME = '' # Replace with your Hugging Face username and desired repo name
 HF_TOKEN = os.getenv('HF_TOKEN')  # Ensure you have set this in your environment variables
 
 # --- Hugging Face Upload Function ---

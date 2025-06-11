@@ -1,0 +1,54 @@
+# training/unimodal/config.yaml
+#
+# Configuration for unimodal training runs.
+# Paths are relative to where the script is run (e.g., from the 'unimodal' directory)
+# or absolute paths.
+
+# -- Run Details --
+run_name: "Unimodal_DINOv2s_Finetune"
+
+# -- Data Paths --
+# Adjust this to the root of your dataset
+ultrasound_path: "/teamspace/studios/this_studio/mmibc/ultrasound/images" 
+mammo_path: "/teamspace/studios/this_studio/mmibc/mammo/images"
+
+# -- Model Parameters --
+model:
+  # 'dinov2_vits14', 'dinov2_vitb14', 'dinov2_vitl14'
+  name: "dinov2_vitb14"
+  # Number of output classes (e.g., 2 for benign/malignant)
+  n_classes: 2 
+  # Freeze the backbone for faster fine-tuning
+  freeze_backbone: true
+
+# -- Training Parameters --
+training:
+  # DINOv2 default image size
+  image_size: 224
+  # Adjust based on GPU memory. Start small.
+  batch_size: 16
+  # Number of full passes over the dataset
+  epochs: 50
+  # Optimizer learning rate
+  learning_rate: 0.0001
+  # Number of CPU workers for data loading. Set to 0 if you have issues.
+  num_workers: 4
+
+  early_stopping:
+    # Monitor validation loss. You can change this to 'val_accuracy' if you prefer.
+    monitor: "val_loss" 
+    # 'min' for loss, 'max' for accuracy
+    mode: "min" 
+    # Number of epochs to wait for improvement before stopping
+    patience: 30
+    # Minimum change to be considered an improvement
+    min_delta: 0.0001 
+
+
+# -- Output Paths --
+output:
+  # Directory to save the best model checkpoint
+  model_save_path: "/teamspace/studios/this_studio/saved_models/"
+  # Directory to save TensorBoard log files
+  tensorboard_log_dir: "/teamspace/studios/this_studio/runs/"
+

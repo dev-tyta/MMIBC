@@ -6,13 +6,13 @@ from sklearn.model_selection import train_test_split
 # --- Configuration ---
 # Set the base path for your downloaded BUSI dataset
 # Assuming the structure is ./data/ultrasound/images/... and ./data/ultrasound/masks/...
-BUSI_ORIGINAL_PATH = './data/ultrasound' # Adjust this path if needed
+BUSI_ORIGINAL_PATH = os.path.expanduser('~/data/ultrasound') # Adjust this path if needed
 BUSI_IMAGES_PATH = os.path.join(BUSI_ORIGINAL_PATH, 'images')
 BUSI_MASKS_PATH = os.path.join(BUSI_ORIGINAL_PATH, 'masks')
 
 
 # Set the base path for the new organized dataset structure
-ORGANIZED_DATASET_BASE_PATH = './mmibc/busi' # Specific path for BUSI
+ORGANIZED_DATASET_BASE_PATH = os.path.expanduser('~/mmibc/ultrasound') # Specific path for BUSI
 ORGANIZED_METADATA_FILE = os.path.join(ORGANIZED_DATASET_BASE_PATH, 'busi_metadata.csv') # Output metadata file
 
 # Define split ratios (train, validation, test) - should sum to 1.0
@@ -246,7 +246,8 @@ def organize_split_files_and_generate_metadata_busi(split_data, organized_base_p
 
                 # Copy the mask if it exists
                 if original_mask_file_path and os.path.exists(original_mask_file_path):
-                     shutil.copy(original_mask_file_path, organized_mask_file_path)
+                     if organized_mask_file_path is not None:
+                         shutil.copy(original_mask_file_path, organized_mask_file_path)
                 else:
                      organized_mask_file_path = None # Ensure organized path is None if mask wasn't copied
 
@@ -313,4 +314,3 @@ if __name__ == "__main__":
     # Note: This script only handles BUSI.
     # You would run the VinDr-Mammo script separately,
     # handle KAU-BCMD, and then use a separate script to combine/upload to Hugging Face.
-
