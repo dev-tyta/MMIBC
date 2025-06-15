@@ -94,17 +94,34 @@ def fetch_vindr_dataset(output_path):
     logger.info(f"Downloaded dataset to {path}")
     move_dataset(path, output_path)
 
+def fetch_kau_bcmd_dataset(output_path):
+    import kagglehub
+    path = kagglehub.dataset_download("orvile/kau-bcmd-mamography-dataset")
+    logger.info(f"Downloaded dataset to {path}")
+    move_dataset(path, output_path)
+
+def fetch_bus_uc_dataset(output_path):
+    import kagglehub
+
+    # Download latest version
+    path = kagglehub.dataset_download("orvile/bus-uc-breast-ultrasound")
+    logger.info(f"Downloaded dataset to {path}")
+    move_dataset(path, output_path)
+    
+
+
 
 def main():
     output_path = 'data'
     path = "/home/codespace/.cache/kagglehub/datasets/shantanughosh/vindr-mammogram-dataset-dicom-to-png/versions/1"
     os.makedirs(output_path, exist_ok=True)
 
-    fetch_bus_dataset(output_path)
-    fetch_bus_images_dataset(output_path)
-    fetch_vindr_dataset(output_path)
-    fetch_vindr_metadata(output_path="data")
-
+    # fetch_bus_dataset(output_path)
+    # fetch_bus_images_dataset(output_path)
+    # fetch_vindr_dataset(output_path)
+    # fetch_vindr_metadata(output_path="data")
+    fetch_kau_bcmd_dataset(output_path)
+    fetch_bus_uc_dataset(output_path)
 
 if __name__ == "__main__":
     logger.info("Script started")

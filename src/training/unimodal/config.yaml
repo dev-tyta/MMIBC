@@ -10,45 +10,60 @@ run_name: "Unimodal_DINOv2s_Finetune"
 # -- Data Paths --
 # Adjust this to the root of your dataset
 ultrasound_path: "/teamspace/studios/this_studio/mmibc/ultrasound/images" 
-mammo_path: "/teamspace/studios/this_studio/mmibc/mammo/images"
-
+mammo_data_path: "/teamspace/studios/this_studio/mmibc/mammo/"
+mammo_csv_path: "/teamspace/studios/this_studio/mmibc/mammo/vindr_mammo_metadata.csv"
 # -- Model Parameters --
 model:
-  # 'dinov2_vits14', 'dinov2_vitb14', 'dinov2_vitl14'
-  name: "dinov2_vitb14"
-  # Number of output classes (e.g., 2 for benign/malignant)
+  name: "dinov2_vitl14"
   n_classes: 2 
-  # Freeze the backbone for faster fine-tuning
   freeze_backbone: true
 
-# -- Training Parameters --
+# -- Training Parameters (Defaults for single runs) --
 training:
-  # DINOv2 default image size
   image_size: 224
-  # Adjust based on GPU memory. Start small.
-  batch_size: 16
-  # Number of full passes over the dataset
-  epochs: 50
-  # Optimizer learning rate
-  learning_rate: 0.0001
-  # Number of CPU workers for data loading. Set to 0 if you have issues.
-  num_workers: 4
+  batch_size: 32
+  # Set a higher max number of epochs; Early Stopping will find the best one.
+  epochs: 30
+  # You can experiment with these values
+  learning_rate: 0.001
+  weight_decay: 0.05 # L2 regularization to prevent overfitting
+  dropout_rate: 0.3 # Dropout for the MLP head
+  num_workers: 4 # Number of workers for data loading
+  
+  output_dir: "outputs/mammo_experiment_1"
+  patience: 15  # Optional: number of epochs to wait for improvement
+  min_delta: 0.0005
+
+  focal_loss:
+    gamma: 2.0
+    alpha: 0.25
+
 
   early_stopping:
-    # Monitor validation loss. You can change this to 'val_accuracy' if you prefer.
-    monitor: "val_loss" 
-    # 'min' for loss, 'max' for accuracy
-    mode: "min" 
-    # Number of epochs to wait for improvement before stopping
-    patience: 30
-    # Minimum change to be considered an improvement
-    min_delta: 0.0001 
+    monitor: "val_loss"
+    mode: "min"
+    patience: 25 # Increase patience for tuning to let models stabilize
+    min_delta: 0.0001
+
+  progressive_finetuning:
+    enabled: true
+    # --- Stage 1: Head Training ---
+    # Number of epochs to train only the head.
+    epochs_stage1: 30
+    lr_stage1: 0.001
+    
+    # --- Stage 2: Full Fine-Tuning ---
+    # Number of transformer blocks to unfreeze from the end of the backbone.
+    unfreeze_layers_stage2: 2
+    # Use a small LR for the backbone to avoid corrupting weights.
+    lr_backbone_stage2: 0.000005
+    # A slightly larger LR for the head.
+    lr_head_stage2: 0.0001
 
 
 # -- Output Paths --
 output:
-  # Directory to save the best model checkpoint
-  model_save_path: "/teamspace/studios/this_studio/saved_models/"
-  # Directory to save TensorBoard log files
+  model_save_path: "/teamspace/studios/this_studio/saved_models"
   tensorboard_log_dir: "/teamspace/studios/this_studio/runs/"
-
+  # New path for the final tuning results report
+  tuning_results_csv: "hyperparameter_tuning_results.csv"

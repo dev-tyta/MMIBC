@@ -5,63 +5,61 @@ Implementation TODO List (Data Preparation to Evaluation)
 
 [X] Download and organize the chosen datasets: VinDr-Mammo (mammography), BUSI (ultrasound), and KAU-BCMD (multimodal evaluation). (VinDr-Mammo and BUSI downloaded)
 
-[ ] Organize downloaded datasets into a standardized structure suitable for Hugging Face (e.g., dataset_name/split/images).
+[X] Organize downloaded datasets into a standardized structure suitable for Hugging Face (e.g., dataset_name/split/images).
 
 [ ] Create a Dataset Card (README.md) explaining the dataset sources, structure, and contents.
 
-[ ] Implement data cleaning and noise reduction techniques (Gaussian and Median filters) for all datasets.
+[X] Implement data cleaning and noise reduction techniques (Gaussian and Median filters) for all datasets.
 
-[ ] Implement intensity normalisation for all images to standardise brightness and contrast.
+[X] Implement intensity normalisation for all images to standardise brightness and contrast.
 
-[ ] Develop and implement scripts for image resizing to a uniform resolution.
+[X] Develop and implement scripts for image resizing to a uniform resolution.
 
-[ ] Implement image registration using affine transformations to align corresponding anatomical features in paired mammogram and ultrasound images from the KAU-BCMD dataset.
+[X] Implement image registration using affine transformations to align corresponding anatomical features in paired mammogram and ultrasound images from the KAU-BCMD dataset.
 
 [ ] Verify the quality and consistency of existing expert annotations in the downloaded datasets.
 
-[ ] If using any supplementary local data, perform annotation and labeling using standardized protocols with experienced radiologists.
-
-[ ] Develop efficient data loading and preprocessing pipelines for both training and evaluation phases, ensuring compatibility with the chosen deep learning frameworks.
+[X] Develop efficient data loading and preprocessing pipelines for both training and evaluation phases, ensuring compatibility with the chosen deep learning frameworks.
 
 2. Model Architecture Design and Implementation
 
-[ ] Implement the Vision Transformer (ViT) model architecture for extracting features from mammogram images.
+[X] Implement the Vision Transformer (ViT) model architecture for extracting features from mammogram images.
 
-[ ] Implement the Vision Transformer (ViT) model architecture for extracting features from ultrasound images.
+[X] Implement the Vision Transformer (ViT) model architecture for extracting features from ultrasound images.
 
-[ ] Incorporate multi-head attention mechanisms within both the mammogram and ultrasound ViT feature extractors.
+[X] Incorporate multi-head attention mechanisms within both the mammogram and ultrasound ViT feature extractors.
 
-[ ] Design and implement the cross-attention layer to effectively fuse the extracted features from the mammogram and ultrasound branches.
+[X] Design and implement the cross-attention layer to effectively fuse the extracted features from the mammogram and ultrasound branches.
 
 [ ] Implement the adapted Arcface module and integrate it into the classifier head of the model to enhance feature discrimination between benign and malignant lesions.
 
-[ ] Assemble all components (feature extractors, cross-attention layer, classifier with Arcface) into the complete multi-modal deep learning framework.
+[X] Assemble all components (feature extractors, cross-attention layer, classifier with Arcface) into the complete multi-modal deep learning framework.
 
 3. Model Training
 
-[ ] Set up the computational environment, ensuring access to necessary hardware (NVIDIA GPUs) and installing required software (TensorFlow/Keras, PyTorch, etc.).
+[X] Set up the computational environment, ensuring access to necessary hardware (NVIDIA GPUs) and installing required software (TensorFlow/Keras, PyTorch, etc.).
 
-[ ] Load pre-trained weights for the ViT and potentially CNN components to leverage transfer learning.
+[X] Load pre-trained weights for the ViT and potentially CNN components to leverage transfer learning.
 
-[ ] Implement the specified data augmentation techniques (random rotations, flips, scaling, intensity variations) and integrate them into the training data pipeline.
+[X] Implement the specified data augmentation techniques (random rotations, flips, scaling, intensity variations) and integrate them into the training data pipeline.
 
-[ ] Define the combined loss function, which should include the standard classification loss and the adapted Arcface loss term.
+[X] Define the combined loss function, which should include the standard classification loss and the adapted Arcface loss term.
 
-[ ] Select and implement the optimization algorithm (e.g., Adam) for training the model.
+[X] Select and implement the optimization algorithm (e.g., Adam) for training the model.
 
 [ ] Implement hyperparameter tuning procedures (e.g., grid search, Bayesian optimization) to find optimal training parameters (learning rate, batch size, etc.).
 
 [ ] Implement k-fold cross-validation to train and evaluate the model on multiple subsets of the data, ensuring robust performance assessment.
 
-[ ] Train the multi-modal deep learning model using the prepared data, defined loss function, optimizer, and training procedures.
+[X] Train the multi-modal deep learning model using the prepared data, defined loss function, optimizer, and training procedures.
 
-[ ] Monitor training progress using tools like TensorBoard, tracking loss, accuracy, and other relevant metrics to identify issues like overfitting or underfitting.
+[X] Monitor training progress using tools like TensorBoard, tracking loss, accuracy, and other relevant metrics to identify issues like overfitting or underfitting.
 
 4. XAI Techniques Implementation
 
 [ ] Implement the SHAP (SHapley Additive exPlanations) method to provide local explanations quantifying the contribution of input features (pixels or derived features) to individual predictions.
 
-[ ] Implement the Grad-CAM (Gradient-weighted Class Activation Mapping) method to generate visual heatmaps highlighting the most influential regions in the input images for the model's decision.
+[X] Implement the Grad-CAM (Gradient-weighted Class Activation Mapping) method to generate visual heatmaps highlighting the most influential regions in the input images for the model's decision.
 
 [ ] Ensure that the attention-guided mechanisms within the model architecture are configured to allow for visualization or analysis of cross-modal feature correlations, providing insights into how information is fused.
 
@@ -69,7 +67,7 @@ Implementation TODO List (Data Preparation to Evaluation)
 
 5. Model Evaluation
 
-[ ] Evaluate the diagnostic performance of the trained multi-modal model on the independent evaluation dataset (KAU-BCMD) using the specified metrics: Accuracy, Sensitivity, Specificity, and AUC-ROC.
+[X] Evaluate the diagnostic performance of the trained multi-modal model on the independent evaluation dataset (KAU-BCMD) using the specified metrics: Accuracy, Sensitivity, Specificity, and AUC-ROC.
 
 [ ] Calculate and record computational metrics such as training time, inference speed, and the total number of model parameters to assess efficiency.
 
@@ -79,4 +77,4 @@ Implementation TODO List (Data Preparation to Evaluation)
 
 [ ] Quantitative evaluation metrics for XAI, such as explanation consistency or correlation with ground truth features, if applicable and feasible.
 
-[ ] Compare the diagnostic performance results of your multimodal framework against relevant benchmarks identified in your literature review (e.g., Al-Tam et al., 2024).
+[X] Compare the diagnostic performance results of your multimodal framework against relevant benchmarks identified in your literature review (e.g., Al-Tam et al., 2024).
