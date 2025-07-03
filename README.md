@@ -1,6 +1,8 @@
-# Explainable Multimodal Imaging for Breast Cancer Diagnosis (MMIBC)
+# MMIBC: Explainable Multimodal Imaging for Breast Cancer Diagnosis
 
-This repository contains the official implementation for the research project **"Explainable Multimodal Imaging for Breast Cancer Diagnosis Using Mammography and Ultrasonography Datasets"**. The project develops and evaluates an explainable AI framework that fuses mammography and ultrasound images to improve breast cancer diagnosis, with a focus on application in resource-limited settings.
+This repository contains the official implementation for the research project **"MMIBC: Explainable Multimodal Imaging for Breast Cancer Diagnosis Using Mammography and Ultrasonography Datasets"**. The project develops and evaluates an explainable AI framework that fuses mammography and ultrasound images to improve breast cancer diagnosis, with a focus on application in resource-limited settings.
+
+![XAI Evaluation](./assets/xai_evaluation.png)
 
 *Fig: Grad-CAM visualizations showing the model focusing on clinically relevant regions in both mammography and ultrasound images.*
 
@@ -29,7 +31,7 @@ High breast cancer mortality rates in resource-limited contexts are often driven
 
 The model consists of two parallel streams, each using a pre-trained `dinov2-base` ViT backbone to extract features from a mammogram and an ultrasound image, respectively. The resulting feature vectors are then concatenated and passed through a fusion head (a series of dense layers) to produce a final binary classification (benign or malignant).
 
-> *[Placeholder for a detailed architectural diagram image]*
+> ![MMIBC Model Architecture](./assets/MMIBC-1_page-0001.jpg)
 
 ## 💾 Datasets
 
@@ -54,7 +56,7 @@ To set up the project environment, follow these steps:
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/your-username/MMIBC.git](https://github.com/your-username/MMIBC.git)
+    git clone [https://github.com/dev-tyta/MMIBC.git](https://github.com/dev-tyta/MMIBC.git)
     cd MMIBC
     ```
 
