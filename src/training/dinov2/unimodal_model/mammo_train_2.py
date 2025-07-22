@@ -119,7 +119,7 @@ def train_model(config):
     
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=7)
     
-    model_save_path = os.path.join(config['output']['model_save_path'], "best_mammo_model_2.pth")
+    model_save_path = os.path.join(config['output']['model_save_path'], "best_mammo_model_final.pth")
     os.makedirs(config['output']['model_save_path'], exist_ok=True)
     early_stopper = EarlyStopping(
         patience=config['training']['early_stopping']['patience'],

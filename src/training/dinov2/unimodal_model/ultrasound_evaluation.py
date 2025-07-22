@@ -105,9 +105,9 @@ def evaluate_model(config, model_path, test_data_path, output_dir):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Evaluate a trained unimodal classifier on a test set.")
-    parser.add_argument('--model_path', type=str, required=True, help='Path to the trained model checkpoint (.pth).')
+    parser.add_argument('--model_path', type=str, default= "/teamspace/studios/this_studio/saved_models/best_ultrasound_model.pth", help='Path to the trained model checkpoint (.pth).')
     parser.add_argument('--config', type=str, default= "/teamspace/studios/this_studio/MMIBC/src/training/unimodal/config.yaml", help='Path to the config file used for training the model.')
-    parser.add_argument('--test_data_dir', type=str, default="/teamspace/studios/this_studio/mmibc/paired/ultrasound", help='Path to the root of the test dataset (e.g., BUS_UC_split).')
+    parser.add_argument('--test_data_dir', type=str, default="/teamspace/studios/this_studio/mmibc/ultrasound/images", help='Path to the root of the test dataset (e.g., BUS_UC_split).')
     parser.add_argument('--output_dir', type=str, default='/teamspace/studios/this_studio/runs/evaluation_results', help='Directory to save evaluation results (logs, plots).')
     args = parser.parse_args()
 
