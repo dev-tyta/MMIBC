@@ -14,7 +14,14 @@ def config_dir() -> Path:
     if env:
         return Path(env)
     # <repo>/src/mmibc/utils/config.py -> <repo>/configs  (editable install / source checkout)
-    return Path(__file__).resolve().parents[3] / "configs"
+    d = Path(__file__).resolve().parents[3] / "configs"
+    if not (d / "base.yaml").exists():
+        raise FileNotFoundError(
+            f"Could not find the configs directory (looked for {d / 'base.yaml'}). The configs live in the repository, not in the "
+            "installed package: install from a clone with `pip install -e .` (or `pip install -e \".[download]\"`), "
+            "or point the MMIBC_CONFIG_DIR environment variable at the repository's configs/ folder."
+        )
+    return d
 
 
 def _resolve(path: str | os.PathLike) -> Path:

@@ -27,6 +27,18 @@ def test_every_package_directory_has_an_init():
     assert not missing, f"directories with .py files but no __init__.py: {missing}"
 
 
+def test_missing_configs_dir_gives_an_actionable_error(monkeypatch, tmp_path):
+    """A non-editable install has no configs/ next to the package: say how to fix it instead of a bare FileNotFoundError."""
+    from mmibc.utils import config
+
+    monkeypatch.delenv("MMIBC_CONFIG_DIR", raising=False)
+    monkeypatch.setattr(config, "__file__", str(tmp_path / "a" / "b" / "c" / "d" / "config.py"))
+    with pytest.raises(FileNotFoundError, match=r"pip install -e .*MMIBC_CONFIG_DIR"):
+        config.config_dir()
+    monkeypatch.setenv("MMIBC_CONFIG_DIR", str(tmp_path))  # the documented escape hatch still works
+    assert config.config_dir() == tmp_path
+
+
 @pytest.mark.skipif(shutil.which("git") is None or not (REPO / ".git").exists(), reason="needs a git checkout")
 def test_no_source_file_is_git_ignored():
     files = [str(p.relative_to(REPO)) for p in _py_files()]
