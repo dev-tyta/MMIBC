@@ -1,0 +1,45 @@
+% =====================================================================================================
+% MMIBC figure setup.  \input this ONCE in the preamble of the paper (or of a standalone wrapper).
+% The fragments (fig_architecture.tex, fig_algorithm.tex) are drawn for a 12.2 cm text width
+% (Springer LNCS / MICCAI).  For another width wrap the fragment, e.g.
+%     \resizebox{\linewidth}{!}{\input{figures/fig_architecture}}
+% Colours are the Okabe-Ito colour-blind-safe palette; status is also encoded by line weight and fill
+% luminance so the figures survive greyscale printing.
+% =====================================================================================================
+\usepackage{amsmath,amssymb,booktabs,array}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,calc,fit,backgrounds,shapes.geometric}
+
+\definecolor{mmG}{HTML}{009E73}   % corrected / redesigned
+\definecolor{mmB}{HTML}{0072B2}   % new in v2
+\definecolor{mmO}{HTML}{D55E00}   % gradient / back-propagation
+\definecolor{mmY}{HTML}{E69F00}   % decision
+
+\providecommand*{\mmfs}{\fontsize{6.4}{7.4}\selectfont}
+\providecommand*{\mmfnh}{\mmfs\hyphenpenalty=10000 \exhyphenpenalty=10000 }
+\providecommand*{\mmfh}{\fontsize{7.4}{8.6}\selectfont\bfseries}
+
+\tikzset{
+  mmblk/.style  = {rounded corners=1.4pt, align=center, inner xsep=1.2pt, inner ysep=2pt, font=\mmfnh},
+  corr/.style   = {mmblk, draw=mmG!80!black, fill=mmG!15, line width=0.7pt},
+  newb/.style   = {mmblk, draw=mmB, fill=mmB!11, line width=0.9pt},
+  same/.style   = {mmblk, draw=black!55, fill=black!6, line width=0.4pt},
+  mmarr/.style  = {-{Stealth[length=3.2pt,width=2.6pt]}, line width=0.6pt, draw=black!75},
+  mmgrad/.style = {-{Stealth[length=3.2pt,width=2.6pt]}, line width=0.75pt, draw=mmO, dash pattern=on 2.4pt off 1.6pt},
+  mmbadge/.style= {circle, draw=black!70, fill=white, line width=0.4pt, inner sep=0pt, minimum size=7.4pt,
+                   font=\fontsize{4.9}{5}\selectfont\bfseries, text=black},
+  mmcol/.style  = {rounded corners=2.5pt, draw=black!35, line width=0.5pt},
+  mmhead/.style = {font=\mmfh, align=center, inner sep=1pt},
+  mmnote/.style = {font=\fontsize{6}{7}\selectfont\itshape, align=left, inner sep=0pt},
+}
+
+% \mmbadges{node}{C4,C1}: correction-number badges along the top-right edge of a node; the FIRST item is the right-most
+% (so list them in descending order to read C1 C4 from left to right)
+\newcommand{\mmbadges}[2]{%
+  \foreach \mmb [count=\mmi from 0] in {#2}{%
+    \node[mmbadge] at ($(#1.north east)+(-0.09cm-\mmi*0.40cm,0.05cm)$) {\mmb};}}
+
+% \mmblock{name}{style}{x}{y}{width}{height}{text}{badges}
+\newcommand{\mmblock}[8]{%
+  \node[#2, minimum width=#5, minimum height=#6, text width=#5-2.4pt] (#1) at (#3,#4) {#7};%
+  \ifx\relax#8\relax\else\mmbadges{#1}{#8}\fi}

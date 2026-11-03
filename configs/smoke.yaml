@@ -1,0 +1,26 @@
+# CPU smoke-test configuration: tiny randomly-initialised backbone, synthetic images, 2 epochs.
+# Verifies that the whole pipeline runs end to end on a fresh machine (e.g. a new Colab runtime).
+run_name: smoke
+data:
+  store_long_side: 112
+  num_prepare_workers: 2
+input:
+  image_size: 56
+model:
+  backbone: dinov2_tiny_test
+  pretrained: false
+  xattn_heads: 2
+  head_hidden: 32
+  freeze: none
+  unfreeze_last_n: 1
+training:
+  epochs: 2
+  batch_size: 8
+  num_workers: 0
+  amp: off
+  patience: 2
+eval:
+  bootstrap_samples: 50
+xai:
+  n_samples: 4
+  steps: 4

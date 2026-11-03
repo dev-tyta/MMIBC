@@ -1,0 +1,12 @@
+# Backbone bake-off with the fusion held fixed (xattn). DINOv3 repositories are GATED: accept the licence on Hugging Face and
+# set HF_TOKEN first; a run that cannot load its backbone is recorded as failed instead of stopping the suite.
+config: vindr_multiview.yaml
+reference: dinov2_base
+continue_on_error: true
+runs:
+  - {name: dinov2_base,      set: [model.backbone=dinov2_base]}
+  - {name: dinov2reg_base,   set: [model.backbone=dinov2reg_base]}
+  - {name: dinov3_vitb16,    set: [model.backbone=dinov3_vitb16]}
+  - {name: dinov3_vitl16,    set: [model.backbone=dinov3_vitl16, training.batch_size=16]}
+  - {name: tv_convnext_base, set: [model.backbone=tv_convnext_base, training.lr_backbone=5.0e-5]}
+  - {name: tv_efficientnet_b5, set: [model.backbone=tv_efficientnet_b5, training.lr_backbone=5.0e-5]}

@@ -1,0 +1,17 @@
+# Convenience file for `pip install -r requirements.txt`. The source of truth is pyproject.toml
+# (`pip install -e ".[download,dev]"`). Versions are intentionally unpinned so Colab's preinstalled
+# torch / numpy / pandas are never downgraded.
+numpy
+pandas
+scipy
+scikit-learn
+pillow
+torch
+torchvision
+transformers>=4.56
+omegaconf>=2.3
+tqdm
+matplotlib
+kagglehub
+requests
+pytest

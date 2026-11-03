@@ -177,3 +177,10 @@ cython_debug/
 data/
 /.kaggle
 logs/
+# MMIBC runtime and build artifacts
+workspace/
+workspace_local/
+*.pt
+paper/figures/build/
+paper/figures/*.aux
+paper/figures/*.wrap.*

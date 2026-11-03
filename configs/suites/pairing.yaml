@@ -1,0 +1,9 @@
+# Synthetic mammography+ultrasound pairing study. 'random' and 'shuffled_partner' are CONTROLS: if the label-based pairings do
+# not beat them, the cross-modal fusion is not using the pairing.
+config: mammo_us_synthetic.yaml
+reference: label_matched
+runs:
+  - {name: label_matched,    set: [task.pair_mode=label_matched]}
+  - {name: size_conditioned, set: [task.pair_mode=size_conditioned]}
+  - {name: random,           set: [task.pair_mode=random]}
+  - {name: shuffled_partner, set: [task.pair_mode=shuffled_partner]}

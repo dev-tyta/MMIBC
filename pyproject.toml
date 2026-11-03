@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mmibc"
+version = "0.2.0"
+description = "MMIBC: cross-attention fusion of DINOv2 encoders for breast imaging, with controlled pairing studies and quantitative XAI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# Deliberately loose pins: Colab ships torch/numpy/pandas/scikit-learn already and we must not downgrade them.
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn",
+    "pillow",
+    "torch",
+    "torchvision",
+    "transformers>=4.56",
+    "omegaconf>=2.3",
+    "tqdm",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+download = ["kagglehub", "requests"]
+cv = ["opencv-python-headless"]
+dev = ["pytest"]
+
+[project.scripts]
+mmibc = "mmibc.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mmibc = ["benchmarks/*.csv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]

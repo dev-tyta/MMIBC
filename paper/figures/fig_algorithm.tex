@@ -1,0 +1,61 @@
+% Algorithm of MMIBC v2.  (a) forward pass and explanation of one pair; (b) training, evaluation and comparison.
+% Drawn for a 12.2 cm text width.  Cn = row of tab_corrections.tex.
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \useasboundingbox (0,0.2) rectangle (12.2,-10.8);   % pin the box to the 12.2 cm text width
+  \node[mmhead, anchor=west] at (0,0) {(a)\; Forward pass and explanation of one pair};
+  \node[mmhead, anchor=west] at (6.95,0) {(b)\; Training, evaluation and comparison};
+  \draw[black!25, line width=0.5pt] (6.75,0.25) -- (6.75,-10.1);
+
+  % =============================== (a) forward pass ======================================================
+  \mmblock{A1}{same}{1.55}{-1.35}{3.1cm}{1.0cm}{Input pair $x_a,x_b\in\mathbb{R}^{3\times H\times W}$\\(CC and MLO, or\\mammogram and ultrasound)}{}
+  \mmblock{A2}{corr}{1.55}{-3.05}{3.1cm}{1.55cm}{Backbone $f_\theta$ (shared or separate; last $n$ blocks tuned)\\$[c_s;P_s]\in\mathbb{R}^{(1+N_s)\times D}$, $N_s=\tfrac{H}{p}\tfrac{W}{p}$\\register tokens are not part of $P_s$}{C6}
+  \mmblock{A3}{corr}{1.55}{-5.05}{3.1cm}{1.85cm}{Cross-attention ($\times L$ layers)\\$T_a\leftarrow T_a+\mathrm{MHA}(T_a,T_b,T_b)$\\$T_b\leftarrow T_b+\mathrm{MHA}(T_b,T_a,T_a)$\\pre-norm, then FFN; $T_s=[c_s;P_s]$}{C5}
+  \mmblock{A4}{same}{1.55}{-6.6}{3.1cm}{0.8cm}{Pool (CLS, mean of patches)\\$z_s=[\,T_s[0];\,\overline{T_s[1{:}]}\,]\in\mathbb{R}^{2D}$}{}
+  \mmblock{A5}{newb}{1.55}{-8.05}{3.1cm}{1.5cm}{Fuse: $[z_a;z_b]$ (concat) or GMU\\$g=\sigma(W[z_a;z_b])$\\$h=g\odot\tanh(W_az_a)$\\$\quad+\,(1-g)\odot\tanh(W_bz_b)$}{C7}
+  \mmblock{A6}{same}{1.55}{-9.45}{3.1cm}{0.8cm}{MLP head $\to$ logits $\ell\in\mathbb{R}^{C}$\\$p=\mathrm{softmax}(\ell)$}{}
+  \foreach \u/\v in {A1/A2, A2/A3, A3/A4, A4/A5, A5/A6}
+    \draw[mmarr] (\u.south) -- (\v.north);
+
+  % explanation sidecar
+  \mmblock{E1}{newb}{5.45}{-3.55}{2.5cm}{2.1cm}{\textbf{Grad-CAM} of the fused logit $\ell_{\hat c}$ on the patch tokens $P_s$ of stream $s$\\[2pt]$\mathrm{CAM}_s=\mathrm{ReLU}(P_s\,\bar g)$\\[1pt]$\bar g$: token-mean gradient}{C12}
+  \mmblock{E2}{newb}{5.45}{-6.4}{2.5cm}{1.75cm}{\textbf{Localisation and faithfulness}: pointing game, energy, IoU, deletion / insertion AUC against a random map}{C12}
+  \draw[mmarr] (E1.south) -- (E2.north);
+  \node[mmnote, anchor=north, text width=2.5cm, align=center] at (5.45,-8.0) {lesion boxes (VinDr)\\and masks (US)};
+  \draw[mmarr] (5.45,-7.97) -- (E2.south);
+  % P_s forward (solid), gradient backward (dashed)
+  \draw[mmarr] (A2.east) -- node[above, font=\fontsize{6}{7}\selectfont, inner sep=1pt] {$P_s$} (A2.east -| E1.west);
+  \draw[mmgrad] (A6.east) -- ++(0.55,0) |- ($(E1.south west)+(0,0.45)$);
+  \node[font=\fontsize{6}{7}\selectfont, text=mmO, rotate=90, anchor=south, inner sep=1.5pt] at (3.7,-7.4) {$\partial\ell_{\hat c}/\partial P_s$};
+
+  % =============================== (b) procedure =========================================================
+  \mmblock{B1}{corr}{9.575}{-1.45}{4.7cm}{1.2cm}{\textbf{1\;Prepare and pair.} De-duplicate, group-stratified splits, merge-integrity audit (errors stop the run); val / test pairs frozen 1-to-1, train pairs re-drawn every epoch}{C4,C3,C1}
+
+  \draw[mmarr] (B1.south) -- (9.575,-2.4);
+  \draw[rounded corners=2.5pt, draw=mmB, line width=0.8pt, dash pattern=on 4pt off 2.2pt] (6.95,-2.4) rectangle (12.2,-6.55);
+  \node[font=\mmfs\bfseries, anchor=west, inner sep=0pt] at (7.1,-2.62) {2\;\; for epoch $e=1,\dots,E$};
+  \mmblock{B2}{corr}{9.575}{-3.6}{4.7cm}{1.15cm}{batch (balanced sampler; optional modality dropout): forward $\to$ loss $\to$ AMP backward $\to$ clip $\to$ AdamW; separate head / backbone learning rates, warm-up + cosine}{C10,C8}
+  \mmblock{B3}{newb}{9.575}{-4.75}{4.7cm}{0.55cm}{validate: AUROC; atomic checkpoint (best, last)}{C9}
+  \draw[mmarr] (B2.south) -- (B3.north);
+  \node[draw=mmY!80!black, fill=mmY!18, diamond, aspect=3.4, minimum width=3.1cm, minimum height=0.8cm, inner sep=0pt, font=\mmfs, line width=0.7pt] (D) at (9.575,-5.9) {patience exhausted?};
+  \draw[mmarr] (B3.south) -- (D.north);
+  \draw[mmarr] (D.west) -- (7.08,-5.9) -- (7.08,-3.6) -- (B2.west);
+  \node[font=\fontsize{6}{7}\selectfont\itshape, anchor=south west, inner sep=1pt] at (7.1,-5.9) {no};
+
+  \node[font=\fontsize{6}{7}\selectfont\itshape, anchor=west, inner sep=0pt] at (9.7,-6.75) {yes: load best weights};
+  \mmblock{B4}{newb}{9.575}{-7.75}{4.7cm}{1.5cm}{\textbf{3\;Evaluate.} Threshold $\tau$ from validation only; test AUROC (DeLong CI), sensitivity / specificity at $\tau$ (bootstrap CI); controls: drop $a$, drop $b$, shuffled partner, $\Delta$AUROC}{C11}
+  \draw[mmarr] (D.south) -- (B4.north);
+  \mmblock{B5}{newb}{9.575}{-9.4}{4.7cm}{1.3cm}{\textbf{4\;Compare and explain.} DeLong / McNemar against the reference, late fusion, literature table with protocol flags; CAM, rollout and cross-attention maps scored against lesion annotations}{C13,C12}
+  \draw[mmarr] (B4.south) -- (B5.north);
+
+  % =============================== legend ================================================================
+  \node[corr, minimum width=0.5cm, minimum height=0.24cm] at (0.3,-10.65) {};
+  \node[anchor=west, font=\mmfs, inner sep=0pt] at (0.65,-10.65) {corrected / redesigned};
+  \node[newb, minimum width=0.5cm, minimum height=0.24cm] at (3.3,-10.65) {};
+  \node[anchor=west, font=\mmfs, inner sep=0pt] at (3.65,-10.65) {new in v2};
+  \node[same, minimum width=0.5cm, minimum height=0.24cm] at (5.15,-10.65) {};
+  \node[anchor=west, font=\mmfs, inner sep=0pt] at (5.5,-10.65) {unchanged};
+  \draw[mmgrad] (7.1,-10.65) -- (7.65,-10.65);
+  \node[anchor=west, font=\mmfs, inner sep=0pt] at (7.75,-10.65) {gradient};
+  \node[mmbadge] at (9.45,-10.65) {Cn};
+  \node[anchor=west, font=\mmfs, inner sep=0pt] at (9.7,-10.65) {= corrections key};
+\end{tikzpicture}%
