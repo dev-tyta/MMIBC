@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -15,25 +16,81 @@ from mmibc.utils.paths import ProjectPaths, in_colab
 log = logging.getLogger(__name__)
 
 
-def setup_kaggle_credentials() -> None:
-    """Make Kaggle credentials available from env, Colab secrets, or ~/.kaggle/kaggle.json (never printed)."""
-    if os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY"):
-        return
-    if (Path.home() / ".kaggle" / "kaggle.json").exists():
-        return
-    if in_colab():
+KAGGLE_SECRETS = ("KAGGLE_API_TOKEN", "KAGGLE_USERNAME", "KAGGLE_KEY")
+EXPORTABLE_SECRETS = (*KAGGLE_SECRETS, "HF_TOKEN")
+NOT_IN_KERNEL = "not in a notebook kernel"
+
+_HOW_TO_EXPORT = (
+    "Colab secrets can only be read by notebook cells, not by `!mmibc ...` shell commands (those are separate processes). "
+    "Run this in a cell first; it copies the secrets into environment variables, which shell commands do inherit:\n"
+    "    from mmibc.data.download import export_colab_secrets; export_colab_secrets()"
+)
+_WHICH_CREDENTIALS = (
+    "Provide ONE of: (a) KAGGLE_API_TOKEN, the token from 'Generate New Token' in your Kaggle account Settings "
+    "(current kagglehub); (b) the legacy pair KAGGLE_USERNAME + KAGGLE_KEY from 'Create Legacy API Key'; "
+    "(c) a file ~/.kaggle/access_token or ~/.kaggle/kaggle.json. In Colab, store them as secrets (key icon, left bar) "
+    "with 'Notebook access' switched ON for each one."
+)
+
+
+def kaggle_credentials_present() -> bool:
+    """True if kagglehub will find credentials: env token, legacy env pair, or a token / kaggle.json file."""
+    env, home = os.environ, Path.home() / ".kaggle"
+    return bool(
+        env.get("KAGGLE_API_TOKEN")
+        or (env.get("KAGGLE_USERNAME") and env.get("KAGGLE_KEY"))
+        or (home / "access_token").exists()
+        or (home / "kaggle.json").exists()
+    )
+
+
+def export_colab_secrets(names: tuple[str, ...] = EXPORTABLE_SECRETS, verbose: bool = True) -> dict[str, str]:
+    """Copy Colab secrets into environment variables so that ``!mmibc ...`` subprocesses can use them.
+
+    Must run in a notebook cell: ``google.colab.userdata`` only works inside the notebook's own kernel process. Returns
+    ``{name: status}`` and prints the status only (a secret's value is never printed or logged). A secret that is not
+    defined, or whose 'Notebook access' toggle is off, is reported and skipped; it is not an error here.
+    """
+    status: dict[str, str] = {}
+    for name in names:
+        if os.environ.get(name):
+            status[name] = "already set"
+            continue
         try:
             from google.colab import userdata  # type: ignore
 
-            os.environ["KAGGLE_USERNAME"] = userdata.get("KAGGLE_USERNAME")
-            os.environ["KAGGLE_KEY"] = userdata.get("KAGGLE_KEY")
-            return
-        except Exception as exc:  # secret missing or notebook access not granted
-            log.warning("Could not read Kaggle secrets from Colab: %s", exc)
-    raise RuntimeError(
-        "No Kaggle credentials found. In Colab: add secrets KAGGLE_USERNAME and KAGGLE_KEY (key icon in the left bar) "
-        "and enable notebook access. Elsewhere: set the env vars or create ~/.kaggle/kaggle.json."
-    )
+            os.environ[name] = userdata.get(name)
+            status[name] = "exported"
+        except ImportError:
+            status[name] = "not in Colab"
+        except Exception as exc:  # SecretNotFoundError, NotebookAccessError, or no kernel at all
+            kernel_missing = isinstance(exc, AttributeError) and "kernel" in str(exc)
+            status[name] = NOT_IN_KERNEL if kernel_missing else f"missing ({type(exc).__name__}: check the name and the Notebook-access toggle)"
+    if verbose:
+        for name, s in status.items():
+            print(f"  {name:<18} {s}")
+    return status
+
+
+def _write_legacy_kaggle_json() -> None:
+    """Colab only: materialise the legacy KAGGLE_USERNAME/KAGGLE_KEY pair as ~/.kaggle/kaggle.json (the documented legacy route)."""
+    user, key = os.environ.get("KAGGLE_USERNAME"), os.environ.get("KAGGLE_KEY")
+    target = Path.home() / ".kaggle" / "kaggle.json"
+    if in_colab() and user and key and not os.environ.get("KAGGLE_API_TOKEN") and not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps({"username": user, "key": key}))
+        target.chmod(0o600)
+
+
+def setup_kaggle_credentials() -> None:
+    """Make sure Kaggle credentials are available (never printed); raise an actionable error if they are not."""
+    if not kaggle_credentials_present() and in_colab():
+        status = export_colab_secrets(KAGGLE_SECRETS, verbose=False)
+        if not kaggle_credentials_present() and NOT_IN_KERNEL in status.values():
+            raise RuntimeError(f"Kaggle credentials not visible from this process. {_HOW_TO_EXPORT}\n{_WHICH_CREDENTIALS}")
+    if not kaggle_credentials_present():
+        raise RuntimeError(f"No Kaggle credentials found. {_WHICH_CREDENTIALS}")
+    _write_legacy_kaggle_json()
 
 
 def _glob_any(root: Path, pattern: str) -> list[Path]:
@@ -76,6 +133,12 @@ def _download_url(url: str, dest: Path) -> None:
             for chunk in r.iter_content(1 << 20):
                 f.write(chunk)
                 bar.update(len(chunk))
+    if not zipfile.is_zipfile(zpath):
+        size = zpath.stat().st_size
+        head = zpath.read_bytes()[:200].lstrip().lower()
+        kind = "a web page (HTML)" if head.startswith((b"<!doctype", b"<html")) or b"<html" in head else "something that is not a zip archive"
+        zpath.unlink()
+        raise RuntimeError(f"{url} returned {kind} of {size:,} bytes instead of a zip file: the link is probably dead, moved, or needs a browser")
     with zipfile.ZipFile(zpath) as z:
         z.extractall(dest)
     zpath.unlink()
@@ -104,7 +167,10 @@ def download_dataset(key: str, paths: ProjectPaths, force: bool = False) -> Path
             if paths.raw_on_drive:
                 shutil.rmtree(cache_path, ignore_errors=True)
         except Exception as exc:
-            errors.append(f"kaggle:{spec.ref}: {exc}")
+            hint = ""
+            if any(t in str(exc) for t in ("401", "403", "Unauthorized", "Forbidden")):
+                hint = " (Kaggle rejected the credentials: generate a new token in your Kaggle Settings and store it as the secret KAGGLE_API_TOKEN)"
+            errors.append(f"kaggle:{spec.ref}: {exc}{hint}")
     for url in ([spec.ref] if spec.kind == "url" else []) + list(spec.fallback_urls):
         if dest.exists() and not validate_download(spec, dest):
             break

@@ -73,5 +73,5 @@ def test_download_without_arguments_lists_datasets_and_manual_ones_fail_with_ins
     assert main(["download", "--root", str(tmp_path / "r"), "--local", str(tmp_path / "l")]) == 0
     listing = capsys.readouterr().out
     assert "busi" in listing and "manual" in listing
-    assert main(["download", "cmmd", "--root", str(tmp_path / "r"), "--local", str(tmp_path / "l")]) == 1
+    assert main(["download", "breast_lesions_usg", "--root", str(tmp_path / "r"), "--local", str(tmp_path / "l")]) == 1
     assert "manually" in capsys.readouterr().err

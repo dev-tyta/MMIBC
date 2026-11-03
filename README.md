@@ -67,7 +67,9 @@ The corrections are drawn in `paper/figures/` (TikZ, vector) and tested; see *Fi
 | `busi` | BUSI | Kaggle mirror slug **unverified** |
 | `bus_bra` | BUS-BRA ultrasound (Zenodo, CC BY 4.0) | URL download |
 | `kau_bcmd` | KAU-BCMD, real mammogram + ultrasound pairs | Kaggle slug; layout unknown, inspect first |
-| `breast_lesions_usg`, `cmmd`, `bus_uclm` | external ultrasound test, CMMD, BUS-UCLM | manual download (licence/terms) |
+| `bus_uclm` | BUS-UCLM ultrasound (lesion segmentation) | Kaggle slug from the page title; layout unknown, inspect first |
+| `cmmd` | CMMD, **mammography** (biopsy-confirmed), not ultrasound | Kaggle slug from the page title; layout unknown, inspect first; no `prepare` step consumes it yet |
+| `breast_lesions_usg` | BrEaST-Lesions-USG, intended external ultrasound test set | manual download from TCIA (no Kaggle mirror registered) |
 
 `mmibc download` lists them; `mmibc inspect <key>` shows what actually arrived. Sources that do not follow a class-folder layout need a `source_manifest.csv` (`uid, raw_path, class_name[, mask_paths, patient_id]`). The VinDr label is a BI-RADS *suspicion* grouping (`birads_4plus` or `birads_3plus`), not pathology. Known caveat for anyone using foundation models pre-trained on VinDr: a validation split carved from VinDr-train may overlap their pre-training data.
 

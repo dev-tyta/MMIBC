@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-download = ["kagglehub", "requests"]
+download = ["kagglehub>=1.0.3", "requests"]
 cv = ["opencv-python-headless"]
 dev = ["pytest"]
 

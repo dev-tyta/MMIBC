@@ -12,6 +12,6 @@ transformers>=4.56
 omegaconf>=2.3
 tqdm
 matplotlib
-kagglehub
+kagglehub>=1.0.3
 requests
 pytest

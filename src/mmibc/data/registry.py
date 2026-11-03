@@ -35,7 +35,11 @@ REGISTRY: dict[str, DatasetSpec] = {
     ),
     "busi": DatasetSpec(
         "busi", "kaggle", "aryashah2k/breast-ultrasound-images-dataset", ("**/benign/*.png", "**/malignant/*.png"),
-        note="BUSI. UNVERIFIED Kaggle mirror slug; the legacy code used the Cairo University URL (fallback).",
+        note=(
+            "BUSI. UNVERIFIED Kaggle mirror slug. The Cairo University URL from the legacy code no longer serves the zip "
+            "(Nov 2026: it returned a ~19 kB web page), so it only remains as a last-resort fallback. If the Kaggle slug fails, "
+            "download BUSI by hand into <local>/raw/busi/ (it must contain benign/, malignant/ and normal/ folders)."
+        ),
         fallback_urls=("https://scholar.cu.edu.eg/Dataset_BUSI.zip",),
     ),
     "bus_bra": DatasetSpec(
@@ -55,16 +59,24 @@ REGISTRY: dict[str, DatasetSpec] = {
         ),
     ),
     "cmmd": DatasetSpec(
-        "cmmd", "manual", "https://www.cancerimagingarchive.net/", ("**/*.dcm|**/*.png",),
+        "cmmd", "kaggle", "tommyngx/cmmd2022", (IMG + "|**/*.dcm",),
         note=(
-            "CMMD (Chinese Mammography Database, TCIA): biopsy-confirmed benign/malignant mammograms with CC/MLO views - a "
-            "pathology-labelled alternative to VinDr's BI-RADS labels. Details unverified from my sandbox (page blocked). DICOM "
-            "download via the TCIA NBIA Data Retriever; convert to PNG before use."
+            "CMMD (Chinese Mammography Database): MAMMOGRAPHY, not ultrasound. Biopsy-confirmed benign/malignant with CC/MLO "
+            "views, a pathology-labelled alternative to VinDr's BI-RADS labels. The Kaggle page title was confirmed from the "
+            "link you supplied; the file format, folder layout, label file and licence are UNKNOWN (page body unreadable from "
+            "my sandbox), so run `mmibc inspect cmmd` after downloading. The original is on TCIA (NBIA Data Retriever) if the "
+            "mirror is incomplete. Downloadable and inspectable, but no `prepare` step consumes it yet."
         ),
     ),
     "bus_uclm": DatasetSpec(
-        "bus_uclm", "manual", "https://www.nature.com/articles/s41597-025-04562-3", (IMG,),
-        note="BUS-UCLM (Scientific Data 2025): ultrasound lesion-segmentation dataset. Could not be opened from my sandbox; verify size, labels and licence first.",
+        "bus_uclm", "kaggle", "orvile/bus-uclm-breast-ultrasound-dataset", (IMG,),
+        note=(
+            "BUS-UCLM (Scientific Data 2025), breast ultrasound lesion segmentation. The Kaggle page title was confirmed from the "
+            "link you supplied; file layout, how classes are encoded (class folders vs. colour-coded masks), patient IDs and "
+            "licence are UNKNOWN (page body unreadable from my sandbox). Run `mmibc inspect bus_uclm`; if it is not "
+            "class folders, write raw/bus_uclm/source_manifest.csv (uid, raw_path, class_name[, mask_paths, patient_id]) before use. "
+            "Without patient IDs the audit cannot rule out patient-level leakage within this source."
+        ),
     ),
     "kau_bcmd": DatasetSpec(
         "kau_bcmd", "kaggle", "orvile/kau-bcmd-mamography-dataset", (IMG,),
