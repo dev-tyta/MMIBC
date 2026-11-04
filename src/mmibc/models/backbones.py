@@ -46,7 +46,7 @@ class BackboneSpec:
 
 
 _D2 = dict(family="dinov2", patch=14, license="Apache-2.0", verified=True)
-_D2R = dict(family="dinov2_reg", patch=14, license="Apache-2.0", note="Model id from memory; not yet confirmed from the model card.")
+_D2R = dict(family="dinov2_reg", patch=14, license="Apache-2.0", verified=True, note="Id confirmed (the transformers documentation loads facebook/dinov2-with-registers-base; default 4 register tokens); small and large follow the same pattern.")
 _D3 = dict(family="dinov3", patch=16, gated=True, license="DINOv3 License (custom, gated on Hugging Face)")
 
 BACKBONES: dict[str, BackboneSpec] = {
@@ -56,7 +56,8 @@ BACKBONES: dict[str, BackboneSpec] = {
     "dinov2reg_small": BackboneSpec(hf_id="facebook/dinov2-with-registers-small", **_D2R),
     "dinov2reg_base": BackboneSpec(hf_id="facebook/dinov2-with-registers-base", **_D2R),
     "dinov2reg_large": BackboneSpec(hf_id="facebook/dinov2-with-registers-large", **_D2R),
-    # DINOv3 ids follow Meta's naming scheme; the ViT-L/16 id was confirmed from its model card, the others follow the same pattern.
+    # DINOv3 ids follow Meta's naming scheme. Confirmed from the model card / the transformers docs: ViT-L/16 (verified=True), ViT-S/16.
+    # ViT-B/16 and ViT-H+/16 follow the same pattern (third-party repos are named after the B/16 id) but were not seen on a card of their own.
     "dinov3_vits16": BackboneSpec(hf_id="facebook/dinov3-vits16-pretrain-lvd1689m", **_D3),
     "dinov3_vitb16": BackboneSpec(hf_id="facebook/dinov3-vitb16-pretrain-lvd1689m", **_D3),
     "dinov3_vitl16": BackboneSpec(hf_id="facebook/dinov3-vitl16-pretrain-lvd1689m", verified=True, **_D3),
@@ -138,6 +139,10 @@ class ViTBackbone(nn.Module):
             self.model = AutoModel.from_config(cfg)
         elif pretrained:
             kw = {"attn_implementation": "eager"} if eager_attention else {}
+            if spec.gated:
+                from mmibc.utils.hf import ensure_hf_token
+
+                ensure_hf_token()  # picks up HF_TOKEN / a saved login / the Colab secret before the first request
             try:
                 self.model = AutoModel.from_pretrained(spec.hf_id, **kw)
             except Exception as exc:  # gated / offline / bad id: say what to do
@@ -145,7 +150,8 @@ class ViTBackbone(nn.Module):
                     f" '{spec.hf_id}' is a GATED repository: accept the licence on its Hugging Face page and expose a token "
                     "(Colab: add HF_TOKEN under Secrets, or run huggingface_hub.login())."
                 ) if spec.gated else ""
-                raise RuntimeError(f"Could not load backbone '{name}' ({spec.hf_id}): {exc}.{hint}") from exc
+                raise RuntimeError(f"Could not load backbone '{name}' ({spec.hf_id}): {exc}.{hint}"
+                                   + ("" if spec.verified else " (This id follows the naming scheme but was not confirmed from its model card: check it on huggingface.co.)")) from exc
         else:
             cfg = AutoConfig.from_pretrained(spec.hf_id)
             if eager_attention:

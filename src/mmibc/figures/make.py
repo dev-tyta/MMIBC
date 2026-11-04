@@ -38,7 +38,7 @@ def make_figures(runs: dict[str, Path], out_dir: Path, template: str = "lncs", s
         if (r / f"xai_summary_{split}.csv").exists():
             plots.xai_summary_plot(r, split, template, out_dir / f"fig_xai_{k}"), done(f"fig_xai_{k}")
     if splits_dir:
-        for name, col in (("vindr_split.csv", "label"), ("ultrasound_split.csv", "label")):
+        for name, col in (("vindr_split.csv", "label"), ("cmmd_split.csv", "label"), ("ultrasound_split.csv", "label")):
             f = Path(splits_dir) / name
             if f.exists():
                 df = pd.read_csv(f)

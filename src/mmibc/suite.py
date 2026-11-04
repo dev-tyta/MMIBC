@@ -5,6 +5,9 @@ dotted overrides. Suites are built for Colab, where a runtime can disappear in t
 
 * every run is resumable (``last.pt``) and a finished run is skipped, so re-running the same command simply continues;
 * ``status.csv`` is rewritten after every run, so a half-finished suite already shows what is done;
+* a run whose backbone cannot be loaded right now (a gated DINOv3 model without a Hugging Face token) is SKIPPED before anything is built,
+  and a run that fails for another reason is recorded as FAILED when the suite says ``continue_on_error``; both show up in ``results.csv``
+  and are retried by the next call, while finished runs are not repeated;
 * with ``seeds`` each run is repeated per seed on IDENTICAL train/val/test partitions (``data.split_seed`` is fixed), and the summary reports
   mean +- sd across seeds and the AUROC of the seed ensemble. Single-seed differences of 0.01-0.03 AUROC are inside the confidence intervals
   of a test set of a few hundred images: do not read them as effects.
@@ -26,6 +29,7 @@ from mmibc.evaluation.metrics import all_metrics
 from mmibc.evaluation.stats import delong_ci
 from mmibc.pipeline import run_dir_for, run_experiment
 from mmibc.utils.config import config_dir, load_config
+from mmibc.utils.hf import unavailable_reason
 from mmibc.utils.paths import ProjectPaths
 
 log = logging.getLogger(__name__)
@@ -55,6 +59,7 @@ def run_suite(
     out.mkdir(parents=True, exist_ok=True)
     runs: dict[int | None, dict[str, Path]] = {}
     failures: dict[str, str] = {}
+    skipped: dict[str, str] = {}
     status: list[dict] = []
     for r in spec["runs"]:
         if only and r["name"] not in only:
@@ -63,11 +68,19 @@ def run_suite(
             name = r["name"] if sd is None else f"{r['name']}_s{sd}"
             extra = [] if sd is None else [f"seed={sd}", *_split_seed_override(spec, overrides, list(r.get("set", [])), seeds)]
             cfg = load_config(spec["config"], [*overrides, *r.get("set", []), *extra, f"run_name={tag}_{name}"])
+            reason = unavailable_reason(str(cfg.model.backbone))
+            if reason:  # cheap check first: no tables, no model, no hours lost on a run that cannot start
+                skipped[name] = reason
+                status.append(dict(run=name, state="SKIPPED: backbone unavailable (no Hugging Face token)"))
+                log.warning("run '%s' skipped: %s", name, reason)
+                pd.DataFrame(status).to_csv(out / "status.csv", index=False)
+                continue
             t0 = time.time()
             try:
                 res = run_experiment(cfg, paths, force=force)
                 runs.setdefault(sd, {})[r["name"]] = run_dir_for(cfg, paths)
                 status.append(dict(run=name, state="done", test_auroc=res["splits"]["test"]["auroc"], minutes=round((time.time() - t0) / 60, 1)))
+                (out / f"FAILED_{name}.txt").unlink(missing_ok=True)  # a retry that worked: the old traceback is stale
             except Exception as exc:  # noqa: BLE001
                 if not spec.get("continue_on_error", False):
                     pd.DataFrame(status + [dict(run=name, state=f"FAILED: {type(exc).__name__}")]).to_csv(out / "status.csv", index=False)
@@ -80,6 +93,12 @@ def run_suite(
     res = summarize_seeds(runs, spec.get("reference"), out) if seeds else summarize(runs.get(None, {}), spec.get("reference"), out)
     for name, msg in failures.items():
         res = pd.concat([res, pd.DataFrame([dict(model=name, error=msg)])], ignore_index=True)
+    for name, msg in skipped.items():
+        res = pd.concat([res, pd.DataFrame([dict(model=name, error="SKIPPED: " + msg)])], ignore_index=True)
+    if skipped:
+        log.warning("%d run(s) skipped (%s). Set HF_TOKEN and call the same command again: finished runs are kept, only these are trained.", len(skipped), ", ".join(skipped))
+    if not runs and (skipped or failures):
+        log.error("no run of suite '%s' finished (%d skipped, %d failed); see %s", tag, len(skipped), len(failures), out / "status.csv")
     res.to_csv(out / "results.csv", index=False)
     (out / "results.md").write_text(res.to_markdown(index=False, floatfmt=".4f") if hasattr(res, "to_markdown") else res.to_string())
     return res

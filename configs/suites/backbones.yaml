@@ -1,5 +1,7 @@
-# Backbone bake-off with the fusion held fixed (xattn). DINOv3 repositories are GATED: accept the licence on Hugging Face and
-# set HF_TOKEN first; a run that cannot load its backbone is recorded as failed instead of stopping the suite.
+# Backbone bake-off with the fusion held fixed (xattn), on VinDr-Mammo (BI-RADS labels); backbones_cmmd.yaml is the same on CMMD (biopsy labels).
+# DINOv3 repositories are GATED: accept the licence on Hugging Face and provide HF_TOKEN. Until then those rows are SKIPPED (the other rows
+# run normally); after you add the token, call the same command again: finished rows are kept and only the skipped ones are trained.
+# A row that fails for another reason is recorded as failed instead of stopping the suite.
 config: vindr_multiview.yaml
 reference: dinov2_base
 continue_on_error: true

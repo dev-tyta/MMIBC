@@ -99,7 +99,7 @@ def summarize_predictions(df: pd.DataFrame) -> dict[str, float]:
 # (or half trained) before they existed keep their fingerprint and can still be resumed, skipped when finished, and re-evaluated.
 _ADDED_DEFAULTS: dict[str, dict] = {
     "input": {"image_size_a": None, "image_size_b": None},
-    "data": {"split_seed": None},
+    "data": {"split_seed": None, "mammo_source": "vindr", "cmmd": {"subsets": ["D1", "D2"], "val_fraction": 0.15, "test_fraction": 0.15, "crop_breast": True}},
     "model": {"drop_path": 0.0},
     "training": {"label_smoothing": 0.0, "ema_decay": 0.0, "layer_decay": 1.0},
 }
@@ -112,8 +112,12 @@ def config_fingerprint(cfg) -> str:
     groups["training"] = t
     for grp, defaults in _ADDED_DEFAULTS.items():
         for k, dv in defaults.items():
-            if k in groups[grp] and groups[grp][k] == dv:
-                del groups[grp][k]
+            if k in groups[grp]:
+                cur = groups[grp][k]
+                from omegaconf import OmegaConf
+
+                if (OmegaConf.to_container(cur, resolve=True) if OmegaConf.is_config(cur) else cur) == dv:
+                    del groups[grp][k]
     blob = json.dumps({**groups, "seed": cfg["seed"]}, sort_keys=True, default=str)
     return hashlib.sha1(blob.encode()).hexdigest()[:12]
 

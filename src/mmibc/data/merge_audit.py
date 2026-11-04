@@ -188,8 +188,9 @@ def source_confounding(rep: AuditReport, df: pd.DataFrame, cfg: AuditConfig, roo
         rep.stats["source_label_chi2_p"], rep.stats["prevalence_gap"] = p, gap
         if gap > cfg.max_prevalence_gap and p < 0.01:
             rep.add("warn", "source_prevalence", f"positive rate differs by {gap:.2f} between sources (chi2 p={p:.1e}): the source partly determines the label. Report per-source metrics and consider source-balanced sampling")
-    feats = pd.DataFrame({"w": internal.get("proc_w"), "h": internal.get("proc_h"), "overlay": internal.get("overlay_frac")})
-    feats["aspect"] = feats["w"] / feats["h"]
+    feats = pd.DataFrame({k: internal[c] for k, c in (("w", "proc_w"), ("h", "proc_h"), ("overlay", "overlay_frac")) if c in internal})
+    if {"w", "h"} <= set(feats):
+        feats["aspect"] = feats["w"] / feats["h"]
     feats["src"] = internal["source"].astype("category").cat.codes
     if root is not None and len(internal) <= 6000:
         stats = []
@@ -271,11 +272,13 @@ def audit_ultrasound(manifest: pd.DataFrame, root: Path | None, cfg: AuditConfig
 
 
 # ----------------------------------------------------------------------------- VinDr
-def audit_vindr(manifest: pd.DataFrame, root: Path | None, findings: pd.DataFrame | None = None, cfg: AuditConfig | None = None) -> AuditReport:
+def audit_vindr(manifest: pd.DataFrame, root: Path | None, findings: pd.DataFrame | None = None, cfg: AuditConfig | None = None,
+                name: str = "vindr", official: bool = True) -> AuditReport:
+    """Audit of a mammogram table. ``official=False`` (CMMD) has no official test split to protect."""
     cfg = cfg or AuditConfig()
-    rep = AuditReport("vindr")
+    rep = AuditReport(name)
     df = manifest
-    if not _require(rep, df, ["uid", "study_id", "laterality", "view", "label", "official_split", "split", "proc_path", "group"]):
+    if not _require(rep, df, ["uid", "study_id", "laterality", "view", "label", "split", "proc_path", "group", *(["official_split"] if official else [])]):
         return rep
     rep.stats["n_images"], rep.stats["n_studies"] = int(len(df)), int(df["study_id"].nunique())
     if df["uid"].duplicated().any():
@@ -284,9 +287,10 @@ def audit_vindr(manifest: pd.DataFrame, root: Path | None, findings: pd.DataFram
         rep.add("error", "label_nan", f"{int(df['label'].isna().sum())} rows without a label")
     if set(df["view"]) - {"CC", "MLO"}:
         rep.add("warn", "view_values", f"unexpected views {sorted(set(df['view']) - {'CC', 'MLO'})}")
-    moved = df[(df["official_split"] == "test") != (df["split"] == "test")]
-    if len(moved):
-        rep.add("error", "official_test_changed", f"{len(moved)} images moved into/out of the official test split")
+    if official:
+        moved = df[(df["official_split"] == "test") != (df["split"] == "test")]
+        if len(moved):
+            rep.add("error", "official_test_changed", f"{len(moved)} images moved into/out of the official test split")
     leak = leakage_report(df, keys=("uid", "group"))
     if any(leak.values()):
         rep.add("error", "split_leak", f"studies/images shared across splits: {leak}")
@@ -306,6 +310,35 @@ def audit_vindr(manifest: pd.DataFrame, root: Path | None, findings: pd.DataFram
             rep.add("error", "box_mapping", f"{out:.0%} of finding boxes fall outside the stored image: the box -> stored-pixel mapping is wrong")
     if root is not None:
         _check_files(rep, df, Path(root), cfg)
+    return rep
+
+
+def audit_cmmd(manifest: pd.DataFrame, root: Path | None, findings: pd.DataFrame | None = None, cfg: AuditConfig | None = None) -> AuditReport:
+    """The mammogram checks plus what is specific to CMMD: breasts without both views, and the D1 / D2 subset shortcut."""
+    cfg = cfg or AuditConfig()
+    rep = audit_vindr(manifest, root, findings, cfg, name="cmmd", official=False)
+    if any(f.code == "schema" for f in rep.errors):
+        return rep
+    df = manifest
+    views = df.groupby(["study_id", "laterality"])["view"].agg(set)
+    incomplete = int((~views.map(lambda v: {"CC", "MLO"} <= v)).sum())
+    rep.stats["breasts"] = int(len(views))
+    if incomplete:
+        rep.add("warn", "incomplete_breast", f"{incomplete} of {len(views)} labelled breasts lack a CC or an MLO image and form no native pair")
+    if "subset" in df:
+        prev = df.drop_duplicates(["study_id", "laterality"]).groupby("subset")["label"].agg(["mean", "size"])
+        rep.stats["malignant_rate_by_subset"] = {str(k): dict(malignant_rate=float(v["mean"]), breasts=int(v["size"])) for k, v in prev.iterrows()}
+        if len(prev) > 1 and float(prev["mean"].max() - prev["mean"].min()) > cfg.max_prevalence_gap:
+            rep.add("warn", "subset_shortcut", "the CMMD subsets differ strongly in malignant rate (" + ", ".join(f"{k} {v['mean']:.0%}" for k, v in prev.iterrows())
+                    + "): a model can partly learn the subset instead of the lesion. Use data.cmmd.subsets=[D1] for a shortcut-free protocol, "
+                      "or read the per-subset AUROC (`by_stratum` in metrics.json)")
+    if "n_study_images" in df:
+        by_n = df.drop_duplicates(["study_id", "laterality"]).groupby("n_study_images")["label"].agg(["mean", "size"])
+        rep.stats["malignant_rate_by_study_images"] = {int(k): dict(malignant_rate=float(v["mean"]), breasts=int(v["size"])) for k, v in by_n.iterrows()}
+    try:
+        source_confounding(rep, df, cfg, Path(root) if root is not None else None)
+    except Exception as exc:  # noqa: BLE001 - diagnostic only
+        rep.add("warn", "confounding_skipped", f"source-confounding check could not run: {exc}")
     return rep
 
 

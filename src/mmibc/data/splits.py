@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -69,6 +70,31 @@ def assign_vindr_splits(manifest: pd.DataFrame, val_fraction: float, seed: int) 
     train = df[df["official_split"] == "train"]
     val_pos = _carve(train, "group", "label", val_fraction, seed)
     df.loc[train.index[val_pos], "split"] = "val"
+    assert_no_leakage(df, keys=("uid", "group"))
+    return df
+
+
+def assign_cmmd_splits(manifest: pd.DataFrame, val_fraction: float, test_fraction: float, seed: int, subsets: list[str] | tuple[str, ...] | None = None) -> pd.DataFrame:
+    """CMMD has no official split: carve train / val / test by PATIENT (both breasts of a patient stay together), stratified by label and subset.
+
+    ``subsets`` (e.g. ``["D1"]``) restricts the data before splitting. ``source`` is ``cmmd_d1`` / ``cmmd_d2`` so the merge audit's
+    source-confounding check sees the subsets, and ``stratum`` carries the subset into the pair tables for per-subset evaluation.
+    """
+    df = manifest.copy()
+    if subsets:
+        keep = {str(s).upper() for s in subsets}
+        df = df[df["subset"].astype(str).str.upper().isin(keep)]
+        if df.empty:
+            raise ValueError(f"data.cmmd.subsets={sorted(keep)} matches nothing; the prepared CMMD data has subsets {sorted(manifest['subset'].astype(str).unique())}")
+    df = df.reset_index(drop=True)
+    df["group"] = "cmmd:" + df["study_id"].astype(str)
+    df["source"] = "cmmd_" + df["subset"].astype(str).str.lower()
+    df["stratum"] = df["subset"].astype(str)
+    df["_strat"] = df["label"].astype(int).astype(str) + df["subset"].astype(str)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="The least populated class")  # a rare subset x label cell is fine; it is still split by whole patients
+        df["split"] = group_stratified_split(df, "group", "_strat", val_fraction, test_fraction, seed)
+    df = df.drop(columns=["_strat"])
     assert_no_leakage(df, keys=("uid", "group"))
     return df
 

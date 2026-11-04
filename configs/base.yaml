@@ -18,6 +18,12 @@ data:
                                  # A BI-RADS *suspicion* label, not pathology.
     val_fraction: 0.15           # carved out of the official training split, grouped by study_id
     crop_breast: true
+  mammo_source: vindr            # the mammogram stream: vindr (BI-RADS suspicion labels, official split) | cmmd (BIOPSY labels, patient-level random split; DICOM)
+  cmmd:                          # only used when mammo_source=cmmd (see data/cmmd.py)
+    subsets: [D1, D2]            # CMMD's two subsets differ hugely in malignant rate (D1 ~51 %, D2 ~98 %): [D1] removes that shortcut
+    val_fraction: 0.15           # no official split exists: validation and test are carved by patient
+    test_fraction: 0.15
+    crop_breast: true
   us_sources: [busi]             # ultrasound sources merged into one pool; others need raw/<key>/ (see `mmibc inspect`)
   us_external_source: null       # a source held out entirely as the external test set (e.g. breast_lesions_usg)
   busi:

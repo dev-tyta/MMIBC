@@ -24,7 +24,7 @@ def _args(d: Path, name: str, kind: str) -> list[str]:
 
 def test_every_command_is_registered():
     names = set(build_parser()._subparsers._group_actions[0].choices)
-    assert names == {"download", "inspect", "manifest", "prepare", "audit", "train", "evaluate", "xai", "run", "suite", "literature", "figures", "smoke"}
+    assert names == {"download", "inspect", "manifest", "prepare", "audit", "train", "evaluate", "xai", "run", "suite", "experiments", "literature", "figures", "smoke"}
 
 
 def test_smoke_leaves_runs_audits_and_figures(smoke_dir):

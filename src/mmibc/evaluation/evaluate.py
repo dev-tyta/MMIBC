@@ -53,6 +53,31 @@ def _split_metrics(pred: pd.DataFrame, thr: float, n_boot: int, pv: pd.DataFrame
     return m
 
 
+def by_stratum(pred: pd.DataFrame, pairs: pd.DataFrame, thr: float) -> dict | None:
+    """AUROC / sensitivity / specificity per value of the pair table's optional ``stratum`` column (e.g. the CMMD subset); None without it.
+
+    A stratum that contains a single class has no AUROC (reported as null): that is itself the warning that the stratum predicts the label.
+    """
+    if "stratum" not in pairs.columns or "pair_id" not in pred.columns:
+        return None
+    strata = pairs.drop_duplicates("pair_id").set_index("pair_id")["stratum"].astype(str)
+    label = pred["pair_id"].astype(str).map(strata)
+    out: dict = {}
+    for k in sorted(label.dropna().unique()):
+        d = pred[label == k]
+        y, p = d["y"].to_numpy().astype(int), d["p"].to_numpy()
+        pos, neg = int((y == 1).sum()), int((y == 0).sum())
+        row: dict = dict(n=int(len(d)), n_pos=pos, n_neg=neg, auroc=None, sensitivity=None, specificity=None)
+        if pos and neg:
+            row["auroc"] = float(all_metrics(y, p, thr)["auroc"])
+        if pos:
+            row["sensitivity"] = float((p[y == 1] >= thr).mean())
+        if neg:
+            row["specificity"] = float((p[y == 0] < thr).mean())
+        out[k] = row
+    return out or None
+
+
 def _calibrated(df: pd.DataFrame, cal: dict) -> pd.DataFrame:
     """Keep the raw probability as ``p_raw`` and replace ``p`` by the recalibrated one (every downstream consumer reads ``p``)."""
     out = df.copy()
@@ -93,6 +118,9 @@ def evaluate_model(model, datasets: dict[str, PairDataset], cfg, run_dir: Path, 
     out: dict = dict(threshold=thr, threshold_method=ecfg.threshold_method, threshold_chosen_on="val", calibration=cal, eval_fingerprint=eval_fingerprint(cfg), splits={})
     for s, df in preds.items():
         out["splits"][s] = _split_metrics(df, thr, int(ecfg.bootstrap_samples), pv, ops)
+        strata = by_stratum(df, datasets[s].pairs, thr)
+        if strata:
+            out["splits"][s]["by_stratum"] = strata
     if "test" in datasets and len(ecfg.controls):
         base = out["splits"]["test"]["auroc"]
         rows = []

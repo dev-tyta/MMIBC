@@ -145,6 +145,71 @@ def make_fake_breast_lesions(raw_root: Path, n_benign: int = 12, n_malignant: in
         pd.DataFrame(dict(type=["int", "str"], description=["id", "file"])).to_excel(xw, sheet_name="Data Dictionary", index=False)
 
 
+def _write_dcm(path: Path, arr: np.ndarray, patient: str, side: str, view_meaning: str, instance: int, monochrome1: bool = False) -> None:
+    """A minimal mammography DICOM with the tags the REAL CMMD files carry: ImageLaterality, the view only in ViewCodeSequence
+    (no Laterality / ViewPosition), InstanceNumber, explicit VR little endian."""
+    from pydicom.dataset import Dataset, FileDataset, FileMetaDataset
+    from pydicom.uid import ExplicitVRLittleEndian, generate_uid
+
+    meta = FileMetaDataset()
+    meta.MediaStorageSOPClassUID = "1.2.840.10008.5.1.4.1.1.1.2"
+    meta.MediaStorageSOPInstanceUID = generate_uid()
+    meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    ds = FileDataset(str(path), {}, file_meta=meta, preamble=b"\0" * 128)
+    ds.SOPClassUID, ds.SOPInstanceUID = meta.MediaStorageSOPClassUID, meta.MediaStorageSOPInstanceUID
+    ds.PatientID, ds.Modality, ds.ImageLaterality, ds.InstanceNumber = patient, "MG", side, instance
+    code = Dataset()
+    code.CodeMeaning = view_meaning
+    ds.ViewCodeSequence = [code]
+    ds.SamplesPerPixel, ds.PhotometricInterpretation = 1, "MONOCHROME1" if monochrome1 else "MONOCHROME2"
+    ds.Rows, ds.Columns = int(arr.shape[0]), int(arr.shape[1])
+    ds.BitsAllocated = 16 if arr.dtype == np.uint16 else 8
+    ds.BitsStored, ds.HighBit, ds.PixelRepresentation = (12, 11, 0) if arr.dtype == np.uint16 else (8, 7, 0)
+    ds.PixelData = arr.tobytes()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ds.save_as(path)
+
+
+def make_fake_cmmd(raw_root: Path, n_d1: int = 30, n_d2: int = 14, seed: int = 6, size: tuple[int, int] = (128, 96)) -> None:
+    """CMMD as downloaded from TCIA: raw/cmmd/{CMMD_clinicaldata_revision.xlsx, metadata.csv, CMMD/<patient>/<date>/<series>/1-N.dcm}.
+
+    Mirrors what the real files showed: D1 mixes 2-image (one breast) and 4-image (both breasts) studies, D2 is 4-image and almost all
+    malignant; the clinical sheet labels only the biopsied breast (some patients have both), the contralateral breast of a 4-image study is
+    unlabelled; instance 1/2/3/4 = L CC / L MLO / R CC / R MLO. One patient is stored as 12-bit MONOCHROME1 to exercise that decode path.
+    """
+    rng = np.random.default_rng(seed)
+    root = Path(raw_root) / "cmmd"
+    (root / "CMMD").mkdir(parents=True, exist_ok=True)
+    (root / "CMMD" / "LICENSE").write_text("CC BY 4.0 (fake)")
+    clin, meta = [], []
+    h, w = size
+    for i in range(1, n_d1 + n_d2 + 1):
+        d2 = i > n_d1
+        pid = f"{'D2' if d2 else 'D1'}-{i - (n_d1 if d2 else 0):04d}"
+        four = d2 or (i % 3 == 0)
+        malignant = bool(rng.random() < (0.95 if d2 else 0.5))
+        sides = ["L", "R"] if four else [str(rng.choice(["L", "R"]))]
+        lesion_sides = [sides[0]] if len(sides) == 1 else (["L", "R"] if i % 5 == 0 else [str(rng.choice(sides))])
+        labels = {sd: (malignant if k == 0 else bool(rng.random() < 0.5)) for k, sd in enumerate(lesion_sides)}
+        for sd, lab in labels.items():
+            clin.append(dict(ID1=pid, LeftRight=sd, Age=int(rng.integers(30, 70)), number=2, abnormality=str(rng.choice(["mass", "calcification", "both"])),
+                             classification="Malignant" if lab else "Benign", subtype=np.nan))
+        series = root / "CMMD" / pid / f"07-18-{2010 + i % 2}-NA-NA-{10000 + i}" / f"1.000000-NA-{20000 + i}"
+        order = [(sd, v) for sd in ("L", "R") for v in ("cranio-caudal", "medio-lateral oblique")] if four else [(sides[0], v) for v in ("cranio-caudal", "medio-lateral oblique")]
+        mono1 = pid == "D1-0002"
+        for k, (sd, view) in enumerate(order, start=1):
+            body, _ = _blob_image(rng, h, w, int(labels.get(sd, False)), border=6)
+            if mono1:  # 12-bit, inverted storage
+                arr = (4095 - body.astype(np.uint16) * 16).astype(np.uint16)
+            else:
+                arr = body
+            _write_dcm(series / f"1-{k}.dcm", arr, pid, sd, view, k, monochrome1=mono1)
+        meta.append({"Series UID": f"1.2.3.{i}", "Collection": "CMMD", "Subject ID": pid, "Modality": "MG", "Number of Images": len(order),
+                     "File Size": "8.79 MB", "File Location": ".\\" + "\\".join(["CMMD", pid, series.parent.name, series.name])})
+    pd.DataFrame(clin).to_excel(root / "CMMD_clinicaldata_revision.xlsx", sheet_name="Sheet1", index=False)
+    pd.DataFrame(meta).to_csv(root / "metadata.csv", index=False)
+
+
 def make_fake_real_pairs(out_root: Path, n_cases: int = 12, seed: int = 3) -> Path:
     """Stand-in for a processed real mammogram+ultrasound pair set (KAU-BCMD-like). Writes images + pairs_manifest.csv."""
     rng = np.random.default_rng(seed)

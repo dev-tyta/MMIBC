@@ -84,10 +84,12 @@ REGISTRY: dict[str, DatasetSpec] = {
         "cmmd", "kaggle", "tommyngx/cmmd2022", (IMG + "|**/*.dcm",),
         note=(
             "CMMD (Chinese Mammography Database): MAMMOGRAPHY, not ultrasound. Biopsy-confirmed benign/malignant with CC/MLO "
-            "views, a pathology-labelled alternative to VinDr's BI-RADS labels. The Kaggle page title was confirmed from the "
-            "link you supplied; the file format, folder layout, label file and licence are UNKNOWN (page body unreadable from "
-            "my sandbox), so run `mmibc inspect cmmd` after downloading. The original is on TCIA (NBIA Data Retriever) if the "
-            "mirror is incomplete. Downloadable and inspectable, but no `prepare` step consumes it yet."
+            "views, a pathology-labelled alternative to VinDr's BI-RADS labels. `mmibc prepare cmmd` / `data.mammo_source=cmmd` use it. "
+            "It needs the TCIA layout (confirmed on a real copy): the CMMD/ folder of .dcm files, CMMD_clinicaldata_revision.xlsx "
+            "(the labels are NOT in the DICOM files) and optionally TCIA's metadata.csv, anywhere under raw/cmmd/. The Kaggle mirror "
+            "named here is UNVERIFIED: its format (DICOM or converted images), folder layout and label file are unknown, and converted "
+            "images lose the breast side and view, which `prepare cmmd` refuses. If the mirror lacks the DICOMs or the spreadsheet, "
+            "download CMMD from TCIA (NBIA Data Retriever) and place it in raw/cmmd/."
         ),
     ),
     "bus_uclm": DatasetSpec(
