@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import shutil
+import tempfile
 import zipfile
 from collections import Counter
 from pathlib import Path
@@ -16,6 +17,7 @@ from mmibc.utils.paths import ProjectPaths, in_colab
 log = logging.getLogger(__name__)
 
 
+INCOMPLETE_MARKER = ".mmibc_incomplete"
 KAGGLE_SECRETS = ("KAGGLE_API_TOKEN", "KAGGLE_USERNAME", "KAGGLE_KEY")
 EXPORTABLE_SECRETS = (*KAGGLE_SECRETS, "HF_TOKEN")
 NOT_IN_KERNEL = "not in a notebook kernel"
@@ -100,9 +102,14 @@ def _glob_any(root: Path, pattern: str) -> list[Path]:
     return hits
 
 
-def validate_download(spec: DatasetSpec, path: Path) -> list[str]:
-    """Return the list of expected patterns that matched nothing (empty list = OK)."""
+def _main_missing(spec: DatasetSpec, path: Path) -> list[str]:
+    """Expected patterns of the main archive that matched nothing."""
     return [pat for pat in spec.expected if not _glob_any(path, pat)]
+
+
+def validate_download(spec: DatasetSpec, path: Path) -> list[str]:
+    """Return what is missing: expected patterns that matched nothing, plus extra files that are absent (empty list = OK)."""
+    return _main_missing(spec, path) + [name for name, _ in spec.extra_files if not (Path(path) / name).is_file()]
 
 
 def _place(src: Path, dest: Path, copy: bool) -> None:
@@ -121,71 +128,144 @@ def _place(src: Path, dest: Path, copy: bool) -> None:
 
 
 def _download_url(url: str, dest: Path) -> None:
+    """Download a zip to local temporary storage and extract it into ``dest`` (which may be on Drive).
+
+    The archive itself is never written to ``dest``: that halves the writes to Drive and leaves no stray zip behind.
+    """
     import requests
     from tqdm import tqdm
 
     dest.mkdir(parents=True, exist_ok=True)
-    zpath = dest / "download.zip"
+    tmpdir = Path(tempfile.mkdtemp(prefix="mmibc_dl_"))
+    try:
+        zpath = tmpdir / "download.zip"
+        with requests.get(url, stream=True, timeout=60, headers={"User-Agent": "Mozilla/5.0"}) as r:
+            r.raise_for_status()
+            total = int(r.headers.get("content-length", 0))
+            with open(zpath, "wb") as f, tqdm(total=total, unit="B", unit_scale=True) as bar:
+                for chunk in r.iter_content(1 << 20):
+                    f.write(chunk)
+                    bar.update(len(chunk))
+        if not zipfile.is_zipfile(zpath):
+            size = zpath.stat().st_size
+            head = zpath.read_bytes()[:200].lstrip().lower()
+            kind = "a web page (HTML)" if head.startswith((b"<!doctype", b"<html")) or b"<html" in head else "something that is not a zip archive"
+            raise RuntimeError(f"{url} returned {kind} of {size:,} bytes instead of a zip file: the link is probably dead, moved, or needs a browser")
+        with zipfile.ZipFile(zpath) as z:
+            _check_space(dest, sum(i.file_size for i in z.infolist()), url)
+            z.extractall(dest)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _tree_bytes(path: Path) -> int:
+    return sum(f.stat().st_size for f in Path(path).rglob("*") if f.is_file())
+
+
+def _check_space(dest: Path, need: int, what: str) -> None:
+    """Refuse to start a copy that cannot fit (a Drive that fills up halfway leaves a broken dataset)."""
+    probe = dest
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    try:
+        total, _, free = shutil.disk_usage(probe)
+    except OSError:
+        return
+    if total > 0 and need > free:
+        raise RuntimeError(
+            f"Not enough free space for {what}: needs {need / 1e9:.1f} GB, {free / 1e9:.1f} GB free at {probe}. "
+            "Free up Google Drive space, or set paths.raw_on_drive=false to keep raw downloads on the (temporary) local disk."
+        )
+
+
+def _download_file(url: str, target: Path) -> None:
+    """Fetch one plain file (not an archive). A web page served in its place is reported as such and not kept."""
+    import requests
+    from tqdm import tqdm
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(target.name + ".part")
     with requests.get(url, stream=True, timeout=60, headers={"User-Agent": "Mozilla/5.0"}) as r:
         r.raise_for_status()
         total = int(r.headers.get("content-length", 0))
-        with open(zpath, "wb") as f, tqdm(total=total, unit="B", unit_scale=True) as bar:
+        with open(tmp, "wb") as f, tqdm(total=total, unit="B", unit_scale=True) as bar:
             for chunk in r.iter_content(1 << 20):
                 f.write(chunk)
                 bar.update(len(chunk))
-    if not zipfile.is_zipfile(zpath):
-        size = zpath.stat().st_size
-        head = zpath.read_bytes()[:200].lstrip().lower()
-        kind = "a web page (HTML)" if head.startswith((b"<!doctype", b"<html")) or b"<html" in head else "something that is not a zip archive"
-        zpath.unlink()
-        raise RuntimeError(f"{url} returned {kind} of {size:,} bytes instead of a zip file: the link is probably dead, moved, or needs a browser")
-    with zipfile.ZipFile(zpath) as z:
-        z.extractall(dest)
-    zpath.unlink()
+    head = tmp.read_bytes()[:200].lstrip().lower()
+    if head.startswith((b"<!doctype", b"<html")) or b"<html" in head or tmp.stat().st_size == 0:
+        size = tmp.stat().st_size
+        tmp.unlink()
+        raise RuntimeError(f"{url} returned a web page or an empty body ({size:,} bytes) instead of {target.name}: the link may be dead or need a browser")
+    tmp.replace(target)
 
 
 def download_dataset(key: str, paths: ProjectPaths, force: bool = False) -> Path:
     """Fetch dataset ``key`` into ``paths.raw/<key>`` and validate it. Idempotent."""
     spec = REGISTRY[key]
     dest = paths.raw / key
-    if dest.exists() and not force and not validate_download(spec, dest):
+    marker = dest / INCOMPLETE_MARKER  # present while a download is running or was interrupted: never trust such a folder
+    if dest.exists() and not force and not marker.exists() and not validate_download(spec, dest):
         log.info("%s already present at %s", key, dest)
         return dest
 
     if spec.kind == "manual":
         raise RuntimeError(f"'{key}' must be downloaded manually into {dest}. {spec.note}")
 
+    # ``main_ok`` is True only for an archive that is known complete: a folder without the in-progress marker that matches the
+    # expected patterns, or one this run fetched in full. Files left behind by an interrupted attempt can satisfy a glob (half a
+    # dataset still contains PNGs), so they never count. When only an extra file is missing the archive is not fetched again.
+    main_ok = dest.exists() and not force and not marker.exists() and not _main_missing(spec, dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    if not main_ok:
+        marker.write_text("download in progress or interrupted; delete this folder or re-run `mmibc download`\n")
     errors: list[str] = []
-    if spec.kind == "kaggle":
+    if spec.kind == "kaggle" and not main_ok:
         try:
             setup_kaggle_credentials()
             import kagglehub  # imported lazily: only needed for downloads
 
             cache_path = Path(kagglehub.dataset_download(spec.ref))
+            if paths.raw_on_drive:
+                _check_space(dest, _tree_bytes(cache_path), f"'{key}' on Drive")
             # Local raw dir: move (cheap, same disk). Drive raw dir: copy, then drop the local cache copy.
             _place(cache_path, dest, copy=paths.raw_on_drive)
             if paths.raw_on_drive:
                 shutil.rmtree(cache_path, ignore_errors=True)
+            main_ok = not _main_missing(spec, dest)
         except Exception as exc:
             hint = ""
             if any(t in str(exc) for t in ("401", "403", "Unauthorized", "Forbidden")):
                 hint = " (Kaggle rejected the credentials: generate a new token in your Kaggle Settings and store it as the secret KAGGLE_API_TOKEN)"
             errors.append(f"kaggle:{spec.ref}: {exc}{hint}")
     for url in ([spec.ref] if spec.kind == "url" else []) + list(spec.fallback_urls):
-        if dest.exists() and not validate_download(spec, dest):
+        if main_ok:
             break
         try:
             log.info("Downloading %s ...", url)
             _download_url(url, dest)
+            main_ok = not _main_missing(spec, dest)
+        except Exception as exc:
+            errors.append(f"{url}: {exc}")
+    for name, url in spec.extra_files:
+        if (dest / name).is_file() and not force:
+            continue
+        try:
+            log.info("Downloading %s ...", url)
+            _download_file(url, dest / name)
         except Exception as exc:
             errors.append(f"{url}: {exc}")
 
-    missing = validate_download(spec, dest) if dest.exists() else list(spec.expected)
+    missing = _main_missing(spec, dest) if not main_ok else []
+    if not main_ok and not missing:
+        missing = ["(the archive did not finish downloading; files from an earlier attempt may be present but cannot be trusted)"]
+    missing += [name for name, _ in spec.extra_files if not (dest / name).is_file()]
     if missing:
         raise RuntimeError(
             f"Download of '{key}' incomplete. Missing: {missing}. Errors: {errors}. "
             f"If this is the Kaggle slug, check {spec.note}"
         )
+    marker.unlink(missing_ok=True)
     log.info("%s ready at %s", key, dest)
     return dest
 
@@ -225,4 +305,30 @@ def inspect_dataset(root: Path, max_names: int = 6) -> str:
                         lines += ["    " + next(f, "").strip()[:200] for _ in range(3)]
                 except OSError:
                     pass
+            else:
+                lines += _describe_spreadsheet(c)
     return "\n".join(lines)
+
+
+def _describe_spreadsheet(path: Path, rows: int = 3, max_unique: int = 12) -> list[str]:
+    """Per sheet: size, column names, the first rows, and the value counts of low-cardinality columns (likely labels)."""
+    import pandas as pd
+
+    try:
+        sheets = pd.read_excel(path, sheet_name=None)
+    except ImportError:
+        return ["    (reading .xlsx needs openpyxl: pip install openpyxl)"]
+    except Exception as exc:  # corrupt file, HTML saved as .xlsx, ...
+        return [f"    (could not read as a spreadsheet: {type(exc).__name__}: {exc})"]
+    out: list[str] = []
+    for name, df in sheets.items():
+        out.append(f"    sheet '{name}': {len(df)} rows x {df.shape[1]} columns")
+        out.append("    columns: " + " | ".join(str(c) for c in df.columns))
+        for _, r in df.head(rows).iterrows():
+            out.append("    > " + " | ".join(str(v)[:24] for v in r.tolist())[:240])
+        for col in df.columns:
+            s = df[col].dropna()
+            if 0 < s.nunique() <= max_unique:
+                counts = ", ".join(f"{k}={v}" for k, v in s.astype(str).value_counts().items())
+                out.append(f"    values of '{col}': {counts}"[:240])
+    return out

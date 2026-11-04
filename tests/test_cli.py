@@ -69,9 +69,7 @@ def test_figures_command_builds_from_finished_runs_and_refuses_when_there_are_no
     assert main(["figures", "--root", str(tmp_path / "empty_root"), "--out", str(tmp_path / "x")]) == 1
 
 
-def test_download_without_arguments_lists_datasets_and_manual_ones_fail_with_instructions(tmp_path, capsys):
+def test_download_without_arguments_lists_the_registered_datasets(tmp_path, capsys):
     assert main(["download", "--root", str(tmp_path / "r"), "--local", str(tmp_path / "l")]) == 0
     listing = capsys.readouterr().out
-    assert "busi" in listing and "manual" in listing
-    assert main(["download", "breast_lesions_usg", "--root", str(tmp_path / "r"), "--local", str(tmp_path / "l")]) == 1
-    assert "manually" in capsys.readouterr().err
+    assert "busi (kaggle)" in listing and "breast_lesions_usg (url)" in listing and "cmmd (kaggle)" in listing

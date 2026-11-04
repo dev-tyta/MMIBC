@@ -2,11 +2,12 @@
 
 Layout (``root`` is on Google Drive so it survives runtime resets; ``local`` is Colab's fast disk):
 
+    <root>/raw/<dataset>/         raw downloads (default; ``paths.raw_on_drive``)  (persistent)
     <root>/processed/<dataset>/   cropped + downscaled images and manifest.csv   (persistent)
     <root>/splits/                frozen split / pair tables                      (persistent)
     <root>/runs/<run_name>/       checkpoints, predictions, metrics, config       (persistent)
     <root>/cache/hf/              Hugging Face weights cache                      (persistent)
-    <local>/raw/<dataset>/        raw downloads (large; deleted with the runtime) (ephemeral)
+    <local>/raw/<dataset>/        raw downloads when ``paths.raw_on_drive=false``  (ephemeral)
     <local>/processed/<dataset>/  staged copy of processed data for fast reading  (ephemeral)
 """
 
@@ -38,9 +39,12 @@ def mount_drive(mount_point: str = DRIVE_MOUNT) -> bool:
         return False
     if Path(mount_point, "MyDrive").exists():
         return True
-    from google.colab import drive  # type: ignore
+    try:
+        from google.colab import drive  # type: ignore
 
-    drive.mount(mount_point)
+        drive.mount(mount_point)  # only works inside a notebook cell, not from a `!mmibc ...` subprocess
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not mount Google Drive from this process: %s", exc)
     return Path(mount_point, "MyDrive").exists()
 
 
@@ -48,7 +52,7 @@ def mount_drive(mount_point: str = DRIVE_MOUNT) -> bool:
 class ProjectPaths:
     root: Path
     local: Path
-    raw_on_drive: bool = False
+    raw_on_drive: bool = True
 
     @property
     def raw(self) -> Path:
@@ -80,14 +84,21 @@ class ProjectPaths:
         return self
 
 
-def resolve_paths(root: str | os.PathLike | None = None, local: str | os.PathLike | None = None, raw_on_drive: bool = False) -> ProjectPaths:
+def resolve_paths(root: str | os.PathLike | None = None, local: str | os.PathLike | None = None, raw_on_drive: bool = True) -> ProjectPaths:
     """Resolve persistent root and local scratch.
 
     Root precedence: explicit argument > $MMIBC_ROOT > mounted Drive (Colab) > ./workspace.
     """
     root = root or os.environ.get("MMIBC_ROOT")
     if not root:
-        if in_colab() and mount_drive():
+        if in_colab():
+            if not mount_drive():
+                raise RuntimeError(
+                    "Google Drive is not mounted, so nothing could be saved to it (falling back to the temporary Colab disk would "
+                    "lose your data when the runtime resets). Run this in a notebook cell, then try again:\n"
+                    "    from google.colab import drive; drive.mount('/content/drive')\n"
+                    "or pass an explicit location with --root / the MMIBC_ROOT environment variable."
+                )
             root = DRIVE_DEFAULT_ROOT
         else:
             root = Path.cwd() / "workspace"
@@ -102,7 +113,7 @@ def resolve_paths(root: str | os.PathLike | None = None, local: str | os.PathLik
 
 def paths_from_cfg(cfg) -> ProjectPaths:
     p = cfg.paths
-    paths = resolve_paths(p.get("root"), p.get("local"), bool(p.get("raw_on_drive", False)))
+    paths = resolve_paths(p.get("root"), p.get("local"), bool(p.get("raw_on_drive", True)))
     # Keep HF weights on Drive so a fresh Colab runtime does not re-download them.
     os.environ.setdefault("HF_HOME", str(paths.hf_cache))
     os.environ.setdefault("TORCH_HOME", str(paths.root / "cache" / "torch"))  # torchvision CNN weights

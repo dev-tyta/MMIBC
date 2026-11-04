@@ -56,25 +56,41 @@ def cmd_download(a):
     from mmibc.data.download import download_dataset
     from mmibc.data.registry import REGISTRY
 
-    paths = _paths(a)
+    paths = _paths(a, _cfg(a))  # same config as prepare/train, so every stage agrees on where raw data lives
     keys = list(REGISTRY) if a.all else a.keys
     if not keys:
         print("datasets:", ", ".join(f"{k} ({v.kind})" for k, v in REGISTRY.items()))
         return 0
-    rc = 0
-    for k in keys:
+    unknown = [k for k in keys if k not in REGISTRY]
+    if unknown:
+        print(f"unknown dataset(s): {unknown}. Known: {list(REGISTRY)}", file=sys.stderr)
+        return 2
+    where = "Google Drive" if paths.raw_on_drive else "local disk"
+    print(f"saving raw downloads to {paths.raw} ({where})")
+    results: dict[str, str] = {}
+    for i, k in enumerate(keys, 1):
+        print(f"[{i}/{len(keys)}] {k}")
         try:
             print(f"{k}: {download_dataset(k, paths, a.force)}")
+            results[k] = "ok"
         except Exception as exc:  # noqa: BLE001  one failing dataset must not hide the others
             print(f"{k}: FAILED - {exc}", file=sys.stderr)
-            rc = 1
-    return rc
+            results[k] = "FAILED"
+    if len(keys) > 1:
+        print("\nsummary:")
+        for k, r in results.items():
+            print(f"  {r:<7} {k}")
+        failed = [k for k, r in results.items() if r != "ok"]
+        if failed:
+            print(f"\n{len(failed)} of {len(keys)} failed. Fix the cause shown above and re-run `mmibc download {' '.join(failed)}`; "
+                  "datasets that already succeeded are skipped.", file=sys.stderr)
+    return 0 if all(r == "ok" for r in results.values()) else 1
 
 
 def cmd_inspect(a):
     from mmibc.data.download import inspect_dataset
 
-    print(inspect_dataset(_paths(a).raw / a.key))
+    print(inspect_dataset(_paths(a, _cfg(a)).raw / a.key))
     return 0
 
 
@@ -254,14 +270,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("download", help="fetch raw datasets (no argument: list them)")
-    _common(p, False)
+    _common(p)
     p.add_argument("keys", nargs="*")
-    p.add_argument("--all", action="store_true")
+    p.add_argument("--all", action="store_true", help="download every registered dataset, one after the other, and print a summary")
     p.add_argument("--force", action="store_true")
     p.set_defaults(fn=cmd_download)
 
     p = sub.add_parser("inspect", help="structure report of a raw dataset")
-    _common(p, False)
+    _common(p)
     p.add_argument("key")
     p.set_defaults(fn=cmd_inspect)
 

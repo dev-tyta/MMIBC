@@ -6,7 +6,7 @@ run_name: ${task.kind}_${model.fusion}_s${seed}
 paths:
   root: null            # null -> $MMIBC_ROOT, else /content/drive/MyDrive/MMIBC on Colab, else ./workspace
   local: null           # fast scratch disk for staged images (Colab: /content/mmibc_local)
-  raw_on_drive: false   # false: raw downloads live on local disk (Drive quota!); processed data always on Drive
+  raw_on_drive: true    # true: raw downloads are saved on Drive (survive runtime resets; mind your Drive quota). false: local disk only
 
 data:
   store_long_side: 672  # processed images are stored with this long side (multiple of 14)

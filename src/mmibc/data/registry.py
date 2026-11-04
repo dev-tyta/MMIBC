@@ -19,6 +19,7 @@ class DatasetSpec:
     note: str = ""
     verified: bool = False
     fallback_urls: tuple[str, ...] = ()
+    extra_files: tuple[tuple[str, str], ...] = ()  # (file name, url): plain files saved next to the archive (e.g. a label spreadsheet)
 
 
 IMG = "**/*.png|**/*.jpg|**/*.jpeg"
@@ -51,11 +52,22 @@ REGISTRY: dict[str, DatasetSpec] = {
         ),
     ),
     "breast_lesions_usg": DatasetSpec(
-        "breast_lesions_usg", "manual", "https://www.cancerimagingarchive.net/", (IMG,),
+        "breast_lesions_usg", "url",
+        "https://www.cancerimagingarchive.net/wp-content/uploads/BrEaST-Lesions_USG-images_and_masks-Dec-15-2023.zip",
+        (IMG,),
         note=(
             "BrEaST-Lesions-USG (Pawlowska et al., Sci Data 2024), hosted on TCIA. Intended as the EXTERNAL ultrasound test source. "
-            "I could not open the dataset paper from my sandbox, so size and layout are unverified. Download from TCIA into "
-            "raw/breast_lesions_usg/ and write source_manifest.csv."
+            "Two files are fetched: the images-and-masks zip and the clinical-data spreadsheet (the zip name suggests it holds images "
+            "and masks only, so the labels are expected in the spreadsheet). Both URLs come from the maintainer; neither could be opened "
+            "from my sandbox, so the zip layout, the spreadsheet columns and the licence are UNVERIFIED. Run `mmibc inspect "
+            "breast_lesions_usg` (it prints the spreadsheet's columns and value counts), then write raw/breast_lesions_usg/source_manifest.csv "
+            "(uid, raw_path, class_name[, mask_paths, patient_id])."
+        ),
+        extra_files=(
+            (
+                "BrEaST-Lesions-USG-clinical-data-Dec-15-2023.xlsx",
+                "https://www.cancerimagingarchive.net/wp-content/uploads/BrEaST-Lesions-USG-clinical-data-Dec-15-2023.xlsx",
+            ),
         ),
     ),
     "cmmd": DatasetSpec(

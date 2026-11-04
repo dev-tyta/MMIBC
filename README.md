@@ -24,7 +24,7 @@ mmibc suite ladder                           # fusion ablation on identical froz
 mmibc figures --template lncs
 ```
 
-Persistent files (processed images, splits, checkpoints, weights, figures) go to Google Drive under `MyDrive/MMIBC`; raw downloads stay on the local disk. Everything is resumable: re-run a command after a disconnect.
+Persistent files (processed images, splits, checkpoints, weights, figures) go to Google Drive under `MyDrive/MMIBC`; raw downloads are saved there too (`raw/`; set `paths.raw_on_drive=false` for Colab's temporary disk if your Drive is small). Everything is resumable: re-run a command after a disconnect.
 
 ## What was wrong, and what changed
 
@@ -69,9 +69,9 @@ The corrections are drawn in `paper/figures/` (TikZ, vector) and tested; see *Fi
 | `kau_bcmd` | KAU-BCMD, real mammogram + ultrasound pairs | Kaggle slug; layout unknown, inspect first |
 | `bus_uclm` | BUS-UCLM ultrasound (lesion segmentation) | Kaggle slug from the page title; layout unknown, inspect first |
 | `cmmd` | CMMD, **mammography** (biopsy-confirmed), not ultrasound | Kaggle slug from the page title; layout unknown, inspect first; no `prepare` step consumes it yet |
-| `breast_lesions_usg` | BrEaST-Lesions-USG, intended external ultrasound test set | manual download from TCIA (no Kaggle mirror registered) |
+| `breast_lesions_usg` | BrEaST-Lesions-USG, intended external ultrasound test set | TCIA: images-and-masks zip **and** clinical spreadsheet (URLs supplied by the maintainer; layout and columns unverified, inspect first) |
 
-`mmibc download` lists them; `mmibc inspect <key>` shows what actually arrived. Sources that do not follow a class-folder layout need a `source_manifest.csv` (`uid, raw_path, class_name[, mask_paths, patient_id]`). The VinDr label is a BI-RADS *suspicion* grouping (`birads_4plus` or `birads_3plus`), not pathology. Known caveat for anyone using foundation models pre-trained on VinDr: a validation split carved from VinDr-train may overlap their pre-training data.
+`mmibc download` lists them, `mmibc download --all` fetches every one (continues past failures, prints a summary, skips what already arrived); `mmibc inspect <key>` shows what actually arrived. Sources that do not follow a class-folder layout need a `source_manifest.csv` (`uid, raw_path, class_name[, mask_paths, patient_id]`). The VinDr label is a BI-RADS *suspicion* grouping (`birads_4plus` or `birads_3plus`), not pathology. Known caveat for anyone using foundation models pre-trained on VinDr: a validation split carved from VinDr-train may overlap their pre-training data.
 
 ## Repository map
 
