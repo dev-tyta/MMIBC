@@ -174,6 +174,14 @@ cython_debug/
 .pypirc
 
 # Local configuration file
-data/
+# Anchored to the repository root: an unanchored `data/` also matched the source package src/mmibc/data/
+/data/
 /.kaggle
 logs/
+# MMIBC runtime and build artifacts
+workspace/
+workspace_local/
+*.pt
+paper/figures/build/
+paper/figures/*.aux
+paper/figures/*.wrap.*

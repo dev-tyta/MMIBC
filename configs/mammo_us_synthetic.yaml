@@ -1,0 +1,9 @@
+# Controlled study of SYNTHETIC mammography+ultrasound pairing (VinDr-Mammo x BUSI).
+# Not a diagnostic system: a measurement of what label-based pairing can and cannot support.
+# Run with task.pair_mode in {label_matched, random, shuffled_partner}.
+task:
+  kind: synthetic_pairs
+  pair_mode: label_matched
+model:
+  shared_backbone: false
+  fusion: xattn

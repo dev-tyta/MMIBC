@@ -1,0 +1,12 @@
+# Fusion ladder on ONE frozen test set. Everything except the fusion is identical, so differences are due to fusion alone.
+# Late fusion (mean of the two unimodal probabilities) is computed afterwards from the unimodal runs.
+config: vindr_multiview.yaml
+reference: concat
+runs:
+  - {name: unimodal_a, set: [model.fusion=unimodal_a]}
+  - {name: unimodal_b, set: [model.fusion=unimodal_b]}
+  - {name: early,      set: [model.fusion=early]}
+  - {name: concat,     set: [model.fusion=concat]}
+  - {name: gated,      set: [model.fusion=gated]}
+  - {name: xattn,      set: [model.fusion=xattn]}
+  - {name: xattn_gated, set: [model.fusion=xattn_gated]}

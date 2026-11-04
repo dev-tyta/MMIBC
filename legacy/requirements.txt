@@ -1,0 +1,12 @@
+tqdm
+kagglehub
+python-dotenv
+opencv-python
+opencv-contrib-python
+torch
+torchvision
+scikit-learn
+scikit-image
+pandas
+huggingface-hub
+seaborn

@@ -1,0 +1,11 @@
+# Protocol-matched run for the published VinDr-Mammo two-view result (Petrini et al., arXiv 2503.19945):
+# Normal = BI-RADS 1-2, Abnormal = BI-RADS 3-5, official test split. Compare with `mmibc literature <run_dir>`.
+task:
+  kind: multiview
+data:
+  vindr:
+    label_scheme: birads_3plus
+model:
+  shared_backbone: true
+  fusion: xattn
+run_name: protocol_petrini   # own run directory: this config must not share one with the default multiview run

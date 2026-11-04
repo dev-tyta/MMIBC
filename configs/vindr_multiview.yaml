@@ -1,0 +1,8 @@
+# Native paired data: CC and MLO views of the SAME breast, from the SAME study (VinDr-Mammo).
+# CC tokens query MLO tokens and vice versa. This is the experiment that validates the fusion architecture
+# on genuine cross-view correspondence (answers reviewers' "the pairing is circular" objection).
+task:
+  kind: multiview
+model:
+  shared_backbone: true
+  fusion: xattn
