@@ -17,6 +17,9 @@ def build_model(mcfg, eager_attention: bool = False) -> FusionModel:
     def make():
         bb = make_backbone(mcfg.backbone, pretrained=bool(mcfg.pretrained), eager_attention=eager_attention)
         bb.set_trainable(mcfg.freeze, int(mcfg.unfreeze_last_n))
+        dp = float(mcfg.get("drop_path", 0.0))
+        if dp > 0 and hasattr(bb, "set_drop_path"):
+            bb.set_drop_path(dp)
         return bb
 
     bb_a = make() if need_a else None

@@ -1,0 +1,13 @@
+# Does the second modality add anything on the synthetic mammogram + ultrasound pool?  All runs share the frozen test pairs, so the
+# result is a paired comparison. `fusion_gain.csv` (written next to results.csv) gives ΔAUROC of every fusion model against the
+# mammogram-only model, the ultrasound-only model and the better of the two (chosen on validation), with paired-bootstrap CIs.
+# A fusion model whose CI for "vs best_unimodal" contains 0 has not been shown to use the other modality.
+config: mammo_us_pool.yaml
+reference: concat
+runs:
+  - {name: unimodal_a, set: [model.fusion=unimodal_a]}   # mammogram only
+  - {name: unimodal_b, set: [model.fusion=unimodal_b]}   # ultrasound only
+  - {name: concat,     set: [model.fusion=concat]}
+  - {name: gated,      set: [model.fusion=gated]}
+  - {name: xattn,      set: [model.fusion=xattn]}
+  - {name: xattn_moddrop, set: [model.fusion=xattn, training.modality_dropout=0.25]}

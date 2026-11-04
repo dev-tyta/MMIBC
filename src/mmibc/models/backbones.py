@@ -105,6 +105,21 @@ def _final_norm(model: nn.Module) -> nn.Module:
     raise AttributeError(f"Cannot find the final norm of {type(model).__name__}")
 
 
+class _DropPath(nn.Module):
+    """Stochastic depth (per sample): in training the residual branch is dropped with probability ``p`` and rescaled."""
+
+    def __init__(self, p: float):
+        super().__init__()
+        self.p = float(p)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if not self.training or self.p <= 0.0:
+            return x
+        keep = 1.0 - self.p
+        mask = x.new_empty((x.shape[0],) + (1,) * (x.ndim - 1)).bernoulli_(keep)
+        return x * mask / keep
+
+
 class ViTBackbone(nn.Module):
     """DINOv2 / DINOv2-with-registers / DINOv3 through Hugging Face ``AutoModel``."""
 
@@ -141,9 +156,30 @@ class ViTBackbone(nn.Module):
         self.patch_size: int = int(getattr(cfg, "patch_size", spec.patch))
         self.n_prefix: int = 1 + int(getattr(cfg, "num_register_tokens", 0) or 0)
 
-    def check_input_size(self, size: int) -> None:
-        if size % self.patch_size:
-            raise ValueError(f"image_size {size} must be a multiple of the patch size {self.patch_size} for '{self.name}'")
+    @property
+    def n_layers(self) -> int:
+        return len(_blocks(self.model))
+
+    def set_drop_path(self, rate: float) -> int:
+        """Stochastic depth on the TRAINABLE blocks only (rate grows linearly to ``rate`` at the top block). Returns how many blocks got it.
+
+        The frozen blocks are left deterministic: their pretrained function is what the trainable top is adapting to.
+        """
+        blocks = [b for b in _blocks(self.model) if any(p.requires_grad for p in b.parameters())]
+        n = 0
+        for i, blk in enumerate(blocks):
+            if hasattr(blk, "drop_path"):
+                blk.drop_path = _DropPath(rate * (i + 1) / len(blocks))
+                n += 1
+        if rate > 0 and n == 0:
+            log.warning("drop_path=%s requested but '%s' blocks expose no drop_path hook: no stochastic depth applied", rate, self.name)
+        return n
+
+    def check_input_size(self, size) -> None:
+        from mmibc.data.preprocess import as_hw
+
+        if any(v % self.patch_size for v in as_hw(size)):
+            raise ValueError(f"input size {size} must be a multiple of the patch size {self.patch_size} for '{self.name}' (both height and width)")
 
     def forward(self, x: torch.Tensor, output_attentions: bool = False) -> BackboneOutput:
         out = self.model(pixel_values=x, output_attentions=output_attentions)
@@ -193,9 +229,13 @@ class TVBackbone(nn.Module):
         with torch.no_grad():
             self.embed_dim = int(self.features.eval()(torch.zeros(1, 3, 64, 64)).shape[1])
 
-    def check_input_size(self, size: int) -> None:
-        if size % 32:
-            raise ValueError(f"image_size {size} must be a multiple of 32 for '{self.name}'")
+    n_layers = None  # layer-wise lr decay is defined for transformer backbones only
+
+    def check_input_size(self, size) -> None:
+        from mmibc.data.preprocess import as_hw
+
+        if any(v % 32 for v in as_hw(size)):
+            raise ValueError(f"input size {size} must be a multiple of 32 for '{self.name}' (both height and width)")
 
     def forward(self, x: torch.Tensor, output_attentions: bool = False) -> BackboneOutput:
         f = self.features(x)

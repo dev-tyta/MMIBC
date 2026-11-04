@@ -50,8 +50,9 @@ REGISTRY: dict[str, DatasetSpec] = {
             "BUS-BRA: 1,064 patients, biopsy-proven tumours, BI-RADS 2-5, segmentation masks, CC BY 4.0 (DOI 10.5281/zenodo.8231412). "
             "The record page lists one open file, BUSBRA.zip (133.9 MB, MD5 1f8b2be6476d58fc97bfb5e5a1ea9bab), at the URL used here. "
             "If Zenodo refuses the request from your runtime (HTTP 403), download BUSBRA.zip in a browser and put it into this "
-            "dataset's raw folder on Drive: `mmibc download bus_bra` unpacks and checks it. The internal layout is unverified: run "
-            "`mmibc inspect bus_bra`, then write raw/bus_bra/source_manifest.csv (see ultrasound.load_source_manifest)."
+            "dataset's raw folder on Drive: `mmibc download bus_bra` unpacks and checks it. Layout (confirmed on a real run): "
+            "BUSBRA/{Images,Masks,bus_data.csv}; `prepare us` builds raw/bus_bra/source_manifest.csv from bus_data.csv by itself "
+            "(`mmibc manifest bus_bra` does it explicitly), with Case as patient_id."
         ),
         fallback_urls=(
             "https://zenodo.org/api/records/8231412/files/BUSBRA.zip/content",  # the documented REST download endpoint
@@ -67,9 +68,10 @@ REGISTRY: dict[str, DatasetSpec] = {
             "BrEaST-Lesions-USG (Pawlowska et al., Sci Data 2024), hosted on TCIA. Intended as the EXTERNAL ultrasound test source. "
             "Two files are fetched: the images-and-masks zip and the clinical-data spreadsheet (the zip name suggests it holds images "
             "and masks only, so the labels are expected in the spreadsheet). Both URLs come from the maintainer and the download was confirmed to work from Colab (69.9 MB zip + 40 kB "
-            "spreadsheet); the zip layout, the spreadsheet columns and the licence are still UNVERIFIED. Run `mmibc inspect "
-            "breast_lesions_usg` (it prints the spreadsheet's columns and value counts), then write raw/breast_lesions_usg/source_manifest.csv "
-            "(uid, raw_path, class_name[, mask_paths, patient_id])."
+            "spreadsheet). Layout: a flat folder of caseNNN.png / caseNNN_tumor.png and a spreadsheet with CaseID, Image_filename, "
+            "Mask_tumor_filename, Classification (benign 154 / malignant 98 / normal 4, one image per case; 55 benign-looking cases are "
+            "confirmed by follow-up rather than biopsy). `prepare us` builds raw/breast_lesions_usg/source_manifest.csv from it "
+            "(`mmibc manifest breast_lesions_usg` does it explicitly). The licence is still UNVERIFIED."
         ),
         extra_files=(
             (

@@ -1,10 +1,10 @@
 """Command line: ``mmibc <command>``.  Everything is also callable from Python (see notebooks/colab_quickstart.ipynb).
 
     download   fetch raw datasets          inspect   show the structure of a raw dataset
-    prepare    raw -> processed            audit     split + merge-integrity audit (no training)
+    manifest   build source_manifest.csv  prepare    raw -> processed            audit     split + merge-integrity audit (no training)
     train      train + evaluate one config evaluate  re-evaluate a trained run      xai   explanation metrics
     run        prepare -> train -> xai -> figures
-    suite      run an ablation set (ladder | backbones | pairing)
+    suite      run an ablation set (ladder | pool_ladder | recipe | backbones | pairing); resumable, optional --seeds
     literature compare a run with published results (protocol flags)
     figures    paper figures (data plots; --tex for the TikZ diagrams and the corrections table)
     smoke      the whole pipeline on synthetic data, CPU, ~1-2 min: run this first on a new machine
@@ -103,6 +103,14 @@ def cmd_inspect(a):
     return 0
 
 
+def cmd_manifest(a):
+    from mmibc.data.manifests import build_manifest
+
+    out = build_manifest(a.key, _paths(a, _cfg(a)).raw / a.key, a.force)
+    print(f"{out}  ({sum(1 for _ in open(out)) - 1} rows)")
+    return 0
+
+
 def cmd_prepare(a):
     from mmibc.pipeline import prepare
 
@@ -130,7 +138,7 @@ def cmd_train(a):
     from mmibc.pipeline import run_experiment
 
     cfg = _cfg(a)
-    res = run_experiment(cfg, _paths(a, cfg), evaluate=not a.no_eval)
+    res = run_experiment(cfg, _paths(a, cfg), evaluate=not a.no_eval, force=a.force)
     print(json.dumps({k: v for k, v in res.items() if k in ("threshold", "train", "backbone", "interrupted")}, indent=2, default=str))
     if "splits" in res:
         s = res["splits"]["test"]
@@ -194,7 +202,7 @@ def cmd_suite(a):
     from mmibc.utils.config import load_config
 
     paths = _paths(a, load_config(None, cfg_over))
-    res = run_suite(a.name, paths, cfg_over, a.only or None)
+    res = run_suite(a.name, paths, cfg_over, a.only or None, a.seeds or None, a.force)
     print(res.to_string(index=False))
     return 0
 
@@ -290,6 +298,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("key")
     p.set_defaults(fn=cmd_inspect)
 
+    p = sub.add_parser("manifest", help="build raw/<key>/source_manifest.csv for bus_bra or breast_lesions_usg (prepare does this by itself when it is missing)")
+    _common(p)
+    p.add_argument("key", choices=["bus_bra", "breast_lesions_usg"])
+    p.add_argument("--force", action="store_true", help="rebuild an existing manifest")
+    p.set_defaults(fn=cmd_manifest)
+
     p = sub.add_parser("prepare", help="raw -> processed (crop, downscale, manifests); resumable")
     _common(p)
     p.add_argument("what", nargs="?", default="all", choices=["all", "vindr", "us", "ultrasound"])
@@ -304,6 +318,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("train", help="train (resumable) and evaluate one configuration")
     _common(p)
     p.add_argument("--no-eval", action="store_true")
+    p.add_argument("--force", action="store_true", help="re-evaluate even if this exact configuration already finished (training always resumes)")
     p.set_defaults(fn=cmd_train)
 
     p = sub.add_parser("evaluate", help="re-evaluate a trained run (frozen val threshold, CIs, controls)")
@@ -324,9 +339,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("suite", help="run an ablation set on identical frozen test pairs")
     _common(p, False)
-    p.add_argument("name", help="ladder | backbones | pairing | path.yaml")
+    p.add_argument("name", help="ladder | pool_ladder | recipe | backbones | pairing | path.yaml")
     p.add_argument("--set", nargs="*", default=[], metavar="KEY=VAL")
     p.add_argument("--only", nargs="*", default=[])
+    p.add_argument("--seeds", nargs="*", type=int, default=[], help="repeat every run for these training seeds on one fixed partition; adds mean/sd and the seed ensemble")
+    p.add_argument("--force", action="store_true", help="re-evaluate finished runs (training always resumes)")
     p.set_defaults(fn=cmd_suite)
 
     p = sub.add_parser("literature", help="comparison table against published results, with protocol-comparability flags")

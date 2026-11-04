@@ -1,0 +1,20 @@
+# VinDr-Mammo CC <-> MLO with the recipe changes motivated by the first real runs. NOT yet validated on real data: run
+# `mmibc suite recipe` to see which of the changes help before relying on the combination.
+#   - mammograms are read at 448x266 instead of 224x224 (median lesion was ~1 patch wide at 224, so localisation sat at chance)
+#   - 4 trainable blocks with layer-wise lr decay, stochastic depth, label smoothing and an EMA of the weights
+#     (the first run peaked at epoch 4 of 12 and its validation AUROC jittered by +-0.03 between epochs)
+task:
+  kind: multiview
+model:
+  shared_backbone: true
+  fusion: xattn
+  unfreeze_last_n: 4
+  drop_path: 0.1
+input:
+  image_size_a: [448, 266]
+training:
+  batch_size: 16
+  grad_accum_steps: 2
+  layer_decay: 0.8
+  label_smoothing: 0.05
+  ema_decay: 0.998

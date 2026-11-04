@@ -9,6 +9,7 @@ paths:
   raw_on_drive: true    # true: raw downloads are saved on Drive (survive runtime resets; mind your Drive quota). false: local disk only
 
 data:
+  split_seed: null      # seed of the train/val(/test) partition. null -> `seed`. Fix it (e.g. 42) to compare several training seeds on identical splits
   store_long_side: 672  # processed images are stored with this long side (multiple of 14)
   store_format: png
   num_prepare_workers: 8
@@ -35,7 +36,9 @@ task:
   eval_pair_seed: 1234       # seed of the FROZEN val/test pairs
 
 input:
-  image_size: 224
+  image_size: 224       # model-input canvas: an int (square) or [height, width]; multiples of the patch size (14; 16 for DINOv3; 32 for CNNs)
+  image_size_a: null    # optional per-stream override (stream a = mammogram). The breast is tall and narrow: e.g. [448, 280] keeps ~3x more lesion pixels than 224x224
+  image_size_b: null    # stream b = ultrasound (or the second mammography view, which always follows stream a)
   clahe: false
   augment:
     affine_degrees: 8
@@ -57,6 +60,7 @@ model:
   dropout: 0.3
   freeze: last_n                 # all | last_n | none  (what happens to the BACKBONES)
   unfreeze_last_n: 2
+  drop_path: 0.0                 # stochastic depth on the trainable ViT blocks (0 = off; 0.1 is a common fine-tuning value)
 
 training:
   epochs: 30
@@ -67,6 +71,9 @@ training:
   grad_clip: 1.0
   lr_head: 1.0e-3
   lr_backbone: 1.0e-5
+  layer_decay: 1.0               # layer-wise lr decay over the trainable ViT blocks (1.0 = off; 0.75 with unfreeze_last_n >= 4)
+  label_smoothing: 0.0           # 0 = off; 0.05-0.1 curbs over-confidence (ce / weighted_ce)
+  ema_decay: 0.0                 # EMA of the trainable weights, used for validation / best.pt / evaluation (0 = off; 0.998 ~ the last 500 steps)
   weight_decay: 0.05
   modality_dropout: 0.0          # probability of blanking one stream per training sample (robustness / reliance control)
   scheduler: cosine              # cosine | plateau | none
@@ -83,8 +90,11 @@ training:
 
 eval:
   bootstrap_samples: 1000
-  threshold_method: sens_target  # chosen on VALIDATION only: youden | sens_target | f1 | fixed_0.5
+  calibration: platt             # none | temperature | platt: fitted on VALIDATION logits, applied to every split. Does not change AUROC.
+  threshold_method: sens_target  # chosen on VALIDATION only: youden | sens_target | spec_target | f1 | fixed_0.5
   sens_target: 0.90
+  spec_target: 0.90
+  operating_points: true         # also report sens@90/95 and spec@90/95 (thresholds from validation) for every split
   controls: [none, drop_a, drop_b, shuffle_b]
 
 xai:

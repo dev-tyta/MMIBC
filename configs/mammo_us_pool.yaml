@@ -1,0 +1,10 @@
+# Synthetic mammography + ultrasound pairing on the merged ultrasound pool of the first real runs (BUSI + BUS-BRA).
+# Same recipe as mammo_us_synthetic.yaml; only the pool is fixed here so that suites do not need --set for it.
+task:
+  kind: synthetic_pairs
+  pair_mode: label_matched
+model:
+  shared_backbone: false
+  fusion: xattn
+data:
+  us_sources: [busi, bus_bra]

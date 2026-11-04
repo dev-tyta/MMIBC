@@ -9,10 +9,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from mmibc.data.datasets import PairDataset, build_transforms
+from mmibc.data.datasets import PairDataset, build_transforms, stream_size
 from mmibc.data.merge_audit import AuditConfig, AuditReport, audit_pairs, audit_ultrasound, audit_vindr
 from mmibc.data.pairing import SyntheticResampler, load_real_pairs, make_native_multiview_pairs, make_synthetic_pairs
 from mmibc.data.splits import add_size_quantiles, assign_us_splits, assign_vindr_splits
+from mmibc.data.manifests import BUILDERS, build_manifest
 from mmibc.data.ultrasound import load_source_manifest, prepare_ultrasound, scan_busi, scan_class_folders
 from mmibc.data.vindr import prepare_vindr
 from mmibc.utils.paths import ProjectPaths, stage_to_local
@@ -29,6 +30,8 @@ def scan_us_sources(cfg, paths: ProjectPaths) -> pd.DataFrame:
         if not raw.exists():
             raise FileNotFoundError(f"ultrasound source '{key}' not found at {raw}. Run `mmibc download {key}` (or place it there by hand).")
         csv = raw / "source_manifest.csv"
+        if key in BUILDERS and not csv.exists():  # bus_bra, breast_lesions_usg: labels live in a spreadsheet; build the manifest from it
+            build_manifest(key, raw)
         if key == "busi":
             df = scan_busi(raw, "busi")
         elif csv.exists():
@@ -70,7 +73,8 @@ def build_tables(cfg, paths: ProjectPaths, stage: bool = True, need_us: bool | N
 
     vsrc = paths.processed / VINDR
     vroot = stage_to_local(vsrc, paths.local_processed / VINDR) if stage else vsrc
-    vind = assign_vindr_splits(pd.read_csv(vsrc / "manifest.csv"), float(cfg.data.vindr.val_fraction), int(cfg.seed))
+    split_seed = int(cfg.seed if cfg.data.get("split_seed") is None else cfg.data.split_seed)
+    vind = assign_vindr_splits(pd.read_csv(vsrc / "manifest.csv"), float(cfg.data.vindr.val_fraction), split_seed)
     vind = add_size_quantiles(vind)
     findings = pd.read_csv(vsrc / "findings.csv")
     audits = {"vindr": audit_vindr(vind, vroot, findings, acfg)}
@@ -82,7 +86,7 @@ def build_tables(cfg, paths: ProjectPaths, stage: bool = True, need_us: bool | N
         us_root = stage_to_local(usrc, paths.local_processed / US) if stage else usrc
         ext = cfg.data.us_external_source
         us = assign_us_splits(
-            pd.read_csv(usrc / "manifest.csv"), float(cfg.data.busi.val_fraction), float(cfg.data.busi.test_fraction), int(cfg.seed),
+            pd.read_csv(usrc / "manifest.csv"), float(cfg.data.busi.val_fraction), float(cfg.data.busi.test_fraction), split_seed,
             bool(cfg.data.busi.dedupe), int(cfg.data.busi.dup_hamming), ext,
         )
         us = add_size_quantiles(us)
@@ -113,7 +117,9 @@ class PairSets:
 
 def build_pair_sets(cfg, tables: Tables, paths: ProjectPaths) -> PairSets:
     kind, mode = cfg.task.kind, cfg.task.pair_mode
-    tf_tr, tf_ev = build_transforms(cfg.input, True), build_transforms(cfg.input, False)
+    sz_a, sz_b = stream_size(cfg, "a"), stream_size(cfg, "b")  # (H, W) per stream; a mammogram can be read at higher resolution than an ultrasound
+    tr_a, tr_b = build_transforms(cfg.input, True, sz_a), build_transforms(cfg.input, True, sz_b)
+    ev_a, ev_b = build_transforms(cfg.input, False, sz_a), build_transforms(cfg.input, False, sz_b)
     seed_eval = int(cfg.task.eval_pair_seed)
     extra: dict[str, PairDataset] = {}
     audits: dict[str, AuditReport] = {}
@@ -122,7 +128,7 @@ def build_pair_sets(cfg, tables: Tables, paths: ProjectPaths) -> PairSets:
         tabs = {s: pairs[pairs["split"] == s].reset_index(drop=True) for s in ("train", "val", "test")}
         ra = rb = tables.vindr_root
         a_df = b_df = tables.vindr
-        train = PairDataset(tabs["train"], ra, rb, tf_tr, tf_tr)
+        train = PairDataset(tabs["train"], ra, rb, tr_a, tr_b)
         matched, native = True, True
     elif kind == "synthetic_pairs":
         if tables.us is None:
@@ -131,12 +137,12 @@ def build_pair_sets(cfg, tables: Tables, paths: ProjectPaths) -> PairSets:
         tabs = {s: make_synthetic_pairs(a_df, b_df, s, mode, seed_eval, replace=False) for s in ("val", "test")}
         tabs["train"] = make_synthetic_pairs(a_df, b_df, "train", mode, int(cfg.seed), replace=True)
         resampler = SyntheticResampler(a_df, b_df, "train", mode, int(cfg.seed) * 7919, True) if cfg.task.resample_each_epoch else None
-        train = PairDataset(tabs["train"], ra, rb, tf_tr, tf_tr, resampler)
+        train = PairDataset(tabs["train"], ra, rb, tr_a, tr_b, resampler)
         matched, native = mode in ("label_matched", "size_conditioned"), False
         if (b_df["split"] == "ext_test").any():  # external ultrasound source x the held-out mammograms
             a_ext = a_df[a_df["split"] == "test"].assign(split="ext_test")
             tabs["ext_test"] = make_synthetic_pairs(a_ext, b_df, "ext_test", mode, seed_eval, replace=False)
-            extra["ext_test"] = PairDataset(tabs["ext_test"], ra, rb, tf_ev, tf_ev)
+            extra["ext_test"] = PairDataset(tabs["ext_test"], ra, rb, ev_a, ev_b)
             audits["pairs_ext_test"] = audit_pairs(tabs["ext_test"], a_ext, b_df, True, matched)
     else:
         raise ValueError(f"unknown task.kind '{kind}'")
@@ -157,9 +163,9 @@ def build_pair_sets(cfg, tables: Tables, paths: ProjectPaths) -> PairSets:
     real = cfg.task.get("real_pairs_csv")
     if real:  # genuine same-patient mammogram+ultrasound pairs (Tier 1b): evaluation only
         rp = load_real_pairs(real)
-        extra["real_test"] = PairDataset(rp, Path(cfg.task.real_root_a), Path(cfg.task.real_root_b), tf_ev, tf_ev)
+        extra["real_test"] = PairDataset(rp, Path(cfg.task.real_root_a), Path(cfg.task.real_root_b), ev_a, ev_b)
         tabs["real_test"] = rp
-    return PairSets(train, PairDataset(tabs["val"], ra, rb, tf_ev, tf_ev), PairDataset(tabs["test"], ra, rb, tf_ev, tf_ev), extra, tabs, audits)
+    return PairSets(train, PairDataset(tabs["val"], ra, rb, ev_a, ev_b), PairDataset(tabs["test"], ra, rb, ev_a, ev_b), extra, tabs, audits)
 
 
 # ----------------------------------------------------------------------------- experiment
@@ -168,8 +174,29 @@ def run_dir_for(cfg, paths: ProjectPaths) -> Path:
     return paths.runs / f"{tag}_{cfg.model.backbone}"
 
 
-def run_experiment(cfg, paths: ProjectPaths, evaluate: bool = True, stage: bool = True) -> dict:
-    """Train (resumable) and evaluate one configuration. Returns the metrics dict."""
+def finished_metrics(cfg, run: Path) -> dict | None:
+    """The saved metrics of ``run`` if it was trained AND evaluated with exactly this configuration, else None."""
+    from mmibc.evaluation.evaluate import eval_fingerprint
+    from mmibc.training.trainer import config_fingerprint
+
+    f = Path(run) / "metrics.json"
+    if not f.exists():
+        return None
+    try:
+        prev = json.loads(f.read_text())
+    except (OSError, ValueError):
+        return None
+    if prev.get("train", {}).get("config_fingerprint") == config_fingerprint(cfg) and prev.get("eval_fingerprint") == eval_fingerprint(cfg) and "splits" in prev:
+        return prev
+    return None
+
+
+def run_experiment(cfg, paths: ProjectPaths, evaluate: bool = True, stage: bool = True, force: bool = False) -> dict:
+    """Train (resumable) and evaluate one configuration. Returns the metrics dict.
+
+    A run that already finished with the same training AND evaluation configuration is not repeated (``force=True`` redoes the evaluation;
+    training itself always resumes from ``last.pt``). A finished run whose evaluation settings changed is re-evaluated, not retrained.
+    """
     from mmibc.evaluation.evaluate import evaluate_model
     from mmibc.models.factory import build_model
     from mmibc.training.trainer import Trainer, get_device
@@ -178,15 +205,25 @@ def run_experiment(cfg, paths: ProjectPaths, evaluate: bool = True, stage: bool 
 
     seed_everything(int(cfg.seed))
     run = run_dir_for(cfg, paths)
+    if evaluate and not force and cfg.training.resume:
+        done = finished_metrics(cfg, run)
+        if done is not None:
+            log.info("run %s already finished with this configuration: skipping (use --force to re-evaluate)", run.name)
+            return done
     run.mkdir(parents=True, exist_ok=True)
+    old = run / "metrics.json"
+    if old.exists() and "calibration" not in json.loads(old.read_text() or "{}") and not (run / "metrics.uncalibrated.json").exists():
+        (run / "metrics.uncalibrated.json").write_text(old.read_text())  # keep the numbers reported before recalibration existed
     save_config(cfg, run / "config.yaml")
     tables = build_tables(cfg, paths, stage)
     sets = build_pair_sets(cfg, tables, paths)
     model = build_model(cfg.model)
-    for name in ("backbone_a", "backbone_b"):
-        bb = getattr(model, name, None)
+    for stream in ("a", "b"):
+        bb = getattr(model, f"backbone_{stream}", None)
         if bb is not None:
-            bb.check_input_size(int(cfg.input.image_size))
+            bb.check_input_size(stream_size(cfg, stream))
+    if cfg.model.fusion == "early" and stream_size(cfg, "a") != stream_size(cfg, "b"):
+        raise ValueError(f"fusion='early' stacks both images into one tensor: input sizes must match, got {stream_size(cfg, 'a')} and {stream_size(cfg, 'b')}")
     trainer = Trainer(model, cfg, run, sets.train, sets.val, get_device(), int(cfg.model.n_classes))
     summary = trainer.fit()
     if summary.get("interrupted") or not evaluate:
@@ -223,5 +260,5 @@ def run_xai(cfg, paths: ProjectPaths, split: str = "test", stage: bool = True):
     ds = sets.eval_sets()[split]
     device = get_device()
     model = load_trained(cfg, run, device, eager=True)
-    gt = GroundTruth(int(cfg.input.image_size), tables.vindr, tables.findings, tables.vindr_root, tables.us, tables.us_root)
+    gt = GroundTruth(stream_size(cfg, "a"), tables.vindr, tables.findings, tables.vindr_root, tables.us, tables.us_root, us_size=stream_size(cfg, "b"))
     return explain_split(model, ds, gt, cfg, run, device, split)
