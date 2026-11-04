@@ -134,3 +134,110 @@ def test_backbone_suites_only_name_backbones_that_exist():
             assert cfg.model.backbone in bb.BACKBONES, r
         gated = [r["name"] for r in spec["runs"] if bb.BACKBONES[load_config(spec["config"], r["set"]).model.backbone].gated]
         assert gated == ["dinov3_vitb16", "dinov3_vitl16"]                          # exactly the rows that need the token
+
+
+# ----------------------------------------------------------------------------------------------- a damaged cached download
+def _damaged_cache(tmp_path, monkeypatch):
+    """A fake Hugging Face cache holding a broken dinov2-base next to an unrelated model; the real caches are never touched."""
+    hub = tmp_path / "hf" / "hub"
+    entry = hub / "models--facebook--dinov2-base"
+    (entry / "blobs").mkdir(parents=True)
+    (entry / "blobs" / "model").write_bytes(b"\xff" * 64)
+    other = hub / "models--facebook--dinov2-small"
+    other.mkdir(parents=True)
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+    monkeypatch.delenv("HF_HUB_CACHE", raising=False)
+    monkeypatch.setattr(hf, "hub_cache_dirs", lambda: [hub])
+    return hub, entry, other
+
+
+def test_a_damaged_cached_download_is_removed_and_fetched_again_once(tmp_path, monkeypatch):
+    import transformers
+
+    hub, entry, other = _damaged_cache(tmp_path, monkeypatch)
+    calls = []
+
+    def flaky(repo, **kw):
+        calls.append(kw)
+        if len(calls) == 1:
+            raise RuntimeError("Error while deserializing header: header too large")
+        assert not entry.exists()                                                 # removed BEFORE the second download
+        return transformers.AutoModel.from_config(bb._tiny_config(bb.BACKBONES["dinov2_base"]))
+
+    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", flaky)
+    m = bb.ViTBackbone("dinov2_base", pretrained=True)
+    assert m.embed_dim > 0 and len(calls) == 2
+    assert "force_download" not in calls[0] and calls[1]["force_download"] is True
+    assert calls[0]["cache_dir"] == str(hub)                                      # the Drive cache, whatever the import order was
+    assert not entry.exists() and other.exists()                                  # only the damaged repository went
+
+
+def test_other_load_errors_leave_the_cache_alone(tmp_path, monkeypatch):
+    import transformers
+
+    hub, entry, other = _damaged_cache(tmp_path, monkeypatch)
+    calls = []
+
+    def refuse(repo, **kw):
+        calls.append(kw)
+        raise OSError("401 Client Error: gated repo, access denied")
+
+    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", refuse)
+    with pytest.raises(RuntimeError, match="Could not load backbone"):
+        bb.ViTBackbone("dinov2_base", pretrained=True)
+    assert len(calls) == 1 and entry.exists()                                     # not a damaged file: nothing deleted, nothing retried
+
+
+def test_a_download_that_is_still_unreadable_says_what_to_delete(tmp_path, monkeypatch):
+    import transformers
+
+    hub, entry, other = _damaged_cache(tmp_path, monkeypatch)
+    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", lambda repo, **kw: (_ for _ in ()).throw(RuntimeError("Error while deserializing header: header too large")))
+    with pytest.raises(RuntimeError) as e:
+        bb.ViTBackbone("dinov2_base", pretrained=True)
+    assert "models--facebook--dinov2-base" in str(e.value) and "by hand" in str(e.value)
+
+
+def test_damage_is_recognised_through_a_chain_and_only_the_named_repository_is_purged(tmp_path, monkeypatch):
+    try:
+        try:
+            raise ValueError("Error while deserializing header: MetadataIncompleteBuffer")
+        except ValueError as inner:
+            raise RuntimeError("could not load") from inner
+    except RuntimeError as outer:
+        assert hf.looks_corrupt(outer)
+    assert not hf.looks_corrupt(OSError("401 Client Error")) and not hf.looks_corrupt(ConnectionError("Network is unreachable"))
+    hub, entry, other = _damaged_cache(tmp_path, monkeypatch)
+    assert hf.purge_cached_repo("facebook/dinov2-base") == [entry] and other.exists()
+    assert hf.purge_cached_repo("facebook/dinov2-base") == []                      # already gone: nothing to do, no error
+
+
+def test_the_cache_directory_follows_hf_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "x"))
+    monkeypatch.delenv("HF_HUB_CACHE", raising=False)
+    assert hf.hf_cache_kwargs() == {"cache_dir": str(tmp_path / "x" / "hub")} and tmp_path / "x" / "hub" in hf.hub_cache_dirs()
+    monkeypatch.delenv("HF_HOME")
+    assert hf.hf_cache_kwargs() == {}
+
+
+def test_a_damaged_cnn_checkpoint_is_removed_and_fetched_again(tmp_path, monkeypatch):
+    import torchvision.models as tvm
+
+    monkeypatch.setenv("TORCH_HOME", str(tmp_path / "torch"))
+    url = tvm.get_model_weights("convnext_base").DEFAULT.url
+    damaged = tmp_path / "torch" / "hub" / "checkpoints" / url.rsplit("/", 1)[-1]
+    damaged.parent.mkdir(parents=True)
+    damaged.write_bytes(b"not a zip")
+    calls = []
+    real = tvm.convnext_base
+
+    def flaky(weights=None, **kw):
+        calls.append(weights)
+        if len(calls) == 1:
+            raise RuntimeError("PytorchStreamReader failed reading zip archive: failed finding central directory")
+        assert not damaged.exists()
+        return real(weights=None)
+
+    monkeypatch.setattr(tvm, "convnext_base", flaky)
+    m = bb.TVBackbone("tv_convnext_base", pretrained=True)
+    assert m.embed_dim > 0 and len(calls) == 2 and not damaged.exists()
