@@ -1,7 +1,7 @@
 # MMIBC v2: explainable multimodal breast-cancer imaging
 
 Code for **"MMIBC: An Explainable Multimodal Imaging Framework for Breast Cancer Diagnosis Using Mammography and Ultrasonography"**.
-This branch (`revision/v2`) is a ground-up rebuild made in response to the reviews of the first submission. The old code is kept untouched in [`legacy/`](legacy/).
+This repository (branch `main`; `revision/v2` is kept equal to it) is a ground-up rebuild made in response to the reviews of the first submission. The old code is kept untouched in [`legacy/`](legacy/).
 
 > **Status.** The pipeline, the audits and the test suite run end to end on synthetic data (`mmibc smoke`), and the first real-data runs on Colab exist (see *What the first real runs showed*). The numbers in the rejected submission (e.g. 84 % accuracy) came from the old code, whose problems are listed below, and should not be quoted as results of this repository. **The mitigations added after the first real runs (calibration, EMA, layer-wise lr decay, higher-resolution mammograms, unimodal baselines on the pool, seeds) are covered by unit and end-to-end tests on synthetic data only: their effect on the real datasets has not been measured yet. The CMMD path was run end to end on fake DICOMs in the real layout and its DICOM reader on 4 real CMMD files (one study); `prepare cmmd` has not yet run on the full 1,775-patient download.**
 
@@ -12,7 +12,7 @@ This branch (`revision/v2`) is a ground-up rebuild made in response to the revie
 Open [`notebooks/colab_quickstart.ipynb`](notebooks/colab_quickstart.ipynb) and run it top to bottom, or from a terminal:
 
 ```bash
-git clone -b revision/v2 https://github.com/dev-tyta/MMIBC.git && cd MMIBC
+git clone https://github.com/dev-tyta/MMIBC.git && cd MMIBC
 pip install -e ".[download,dicom]"   # kagglehub + requests for downloads; pydicom + openpyxl for CMMD
 mmibc smoke                       # whole pipeline on synthetic data, CPU, under a minute
 mmibc experiments --list              # EVERYTHING at once: shows what would run on the datasets you have, what is finished, what is blocked
