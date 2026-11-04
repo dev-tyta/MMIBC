@@ -12,7 +12,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms as T
 
-from mmibc.data.preprocess import Affine, letterbox_params, letterbox_square
+from mmibc.data.preprocess import Affine, as_hw, letterbox, letterbox_params
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -21,8 +21,8 @@ IMAGENET_STD = (0.229, 0.224, 0.225)
 class ImageTransform:
     """Grayscale PIL -> normalised 3xSxS tensor. Letterboxed (aspect preserved), optional CLAHE, optional light augmentation."""
 
-    def __init__(self, size: int, train: bool = False, clahe: bool = False, aug: dict | None = None):
-        self.size, self.train, self.clahe = size, train, clahe
+    def __init__(self, size, train: bool = False, clahe: bool = False, aug: dict | None = None):
+        self.size, self.train, self.clahe = as_hw(size), train, clahe  # (H, W)
         aug = dict(aug or {})
         self.aug = None
         if train:
@@ -44,12 +44,28 @@ class ImageTransform:
             img = Image.fromarray(cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(np.asarray(img)))
         if self.aug is not None:
             img = self.aug(img)
-        img, _ = letterbox_square(img, self.size)
+        img, _ = letterbox(img, self.size)
         return self.to_tensor(img.convert("RGB"))
 
 
-def build_transforms(cfg_input, train: bool) -> ImageTransform:
-    return ImageTransform(cfg_input.image_size, train=train, clahe=bool(cfg_input.clahe), aug=dict(cfg_input.augment) if train else None)
+def stream_size(cfg, stream: str) -> tuple[int, int]:
+    """Model-input size (H, W) of stream 'a' or 'b'.
+
+    ``input.image_size`` is the default; ``input.image_size_a`` / ``image_size_b`` override it per stream (an int or [H, W]), so a
+    mammogram can be read at high resolution while the ultrasound stays small. In the native multi-view task both streams are
+    mammograms and share the stream-a size.
+    """
+    if stream not in ("a", "b"):
+        raise ValueError(f"stream must be 'a' or 'b', got {stream!r}")
+    inp = cfg.input
+    if cfg.task.kind == "multiview":
+        stream = "a"
+    override = inp.get(f"image_size_{stream}")
+    return as_hw(override if override is not None else inp.image_size)
+
+
+def build_transforms(cfg_input, train: bool, size=None) -> ImageTransform:
+    return ImageTransform(cfg_input.image_size if size is None else size, train=train, clahe=bool(cfg_input.clahe), aug=dict(cfg_input.augment) if train else None)
 
 
 def affine_for(width: int, height: int, size: int) -> Affine:

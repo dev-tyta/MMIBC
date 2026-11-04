@@ -6,6 +6,7 @@ import logging
 import math
 import random
 import time
+from contextlib import nullcontext
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +18,7 @@ from tqdm import tqdm
 
 from mmibc.evaluation.metrics import auprc, auroc, multiclass_summary
 from mmibc.training.checkpoint import EarlyStopping, atomic_save, load_model_state, model_state
+from mmibc.training.ema import EMA
 from mmibc.training.losses import build_loss
 from mmibc.training.optim import assert_optimizer_covers, build_optimizer, build_scheduler
 
@@ -72,6 +74,8 @@ def predict(model: nn.Module, ds, tcfg, device: torch.device, drop: str | None =
         for k in range(probs.shape[1]):
             df[f"p{k}"] = probs[:, k]
         df["p"] = probs[:, 1] if probs.shape[1] == 2 else np.nan
+        if probs.shape[1] == 2:
+            df["logit"] = (logits[:, 1] - logits[:, 0]).numpy()  # exact log-odds (p saturates in float32); used for recalibration
         df["loss"] = nn.functional.cross_entropy(logits, batch["y"], reduction="none").numpy()
         rows.append(df)
     model.train(was_training)
@@ -91,10 +95,26 @@ def summarize_predictions(df: pd.DataFrame) -> dict[str, float]:
     return out
 
 
+# Options added after the first v2 runs. While they sit at their default they are left out of the fingerprint, so runs trained
+# (or half trained) before they existed keep their fingerprint and can still be resumed, skipped when finished, and re-evaluated.
+_ADDED_DEFAULTS: dict[str, dict] = {
+    "input": {"image_size_a": None, "image_size_b": None},
+    "data": {"split_seed": None},
+    "model": {"drop_path": 0.0},
+    "training": {"label_smoothing": 0.0, "ema_decay": 0.0, "layer_decay": 1.0},
+}
+
+
 def config_fingerprint(cfg) -> str:
     keys = {k: cfg[k] for k in ("model", "task", "input", "data")}
     t = {k: v for k, v in dict(cfg["training"]).items() if k not in ("epochs", "resume", "num_workers", "patience")}
-    blob = json.dumps({**{k: dict(v) if hasattr(v, "keys") else v for k, v in keys.items()}, "training": t, "seed": cfg["seed"]}, sort_keys=True, default=str)
+    groups = {k: dict(v) if hasattr(v, "keys") else v for k, v in keys.items()}
+    groups["training"] = t
+    for grp, defaults in _ADDED_DEFAULTS.items():
+        for k, dv in defaults.items():
+            if k in groups[grp] and groups[grp][k] == dv:
+                del groups[grp][k]
+    blob = json.dumps({**groups, "seed": cfg["seed"]}, sort_keys=True, default=str)
     return hashlib.sha1(blob.encode()).hexdigest()[:12]
 
 
@@ -135,6 +155,8 @@ class Trainer:
         self.amp_dtype, use_scaler = amp_settings(self.t.amp, self.device)
         self.scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
         self.stopper = EarlyStopping(self.t.monitor_mode, int(self.t.patience), float(self.t.min_delta))
+        ema_decay = float(self.t.get("ema_decay", 0.0))
+        self.ema = EMA(self.model, ema_decay) if ema_decay > 0 else None
         self.history: list[dict] = []
         self.start_epoch = 0
         self.finished = False
@@ -154,7 +176,7 @@ class Trainer:
         atomic_save(dict(
             model=model_state(self.model, bool(self.t.save_trainable_only) and bool(self.cfg.model.pretrained)), opt=self.opt.state_dict(),
             sched=self.sched.state_dict(), scaler=self.scaler.state_dict(), stopper=self.stopper.state_dict(), history=self.history,
-            epoch=epoch, finished=self.finished, fp=self.fp, rng=_rng_state(),
+            epoch=epoch, finished=self.finished, fp=self.fp, rng=_rng_state(), ema=self.ema.state_dict() if self.ema else None,
         ), self.last_path)
 
     def _try_resume(self) -> None:
@@ -168,9 +190,15 @@ class Trainer:
         self.sched.load_state_dict(blob["sched"])
         self.scaler.load_state_dict(blob["scaler"])
         self.stopper.load_state_dict(blob["stopper"])
+        if self.ema is not None and blob.get("ema"):
+            self.ema.load_state_dict(blob["ema"])
         self.history, self.start_epoch, self.finished = blob["history"], blob["epoch"] + 1, blob["finished"]
         _set_rng_state(blob["rng"])
         log.info("Resumed from epoch %d (%s)", blob["epoch"], self.last_path)
+
+    def _eval_weights(self):
+        """Context in which the model holds the weights that get validated and saved: the EMA copy when enabled, else the live weights."""
+        return self.ema.applied(self.model) if self.ema is not None else nullcontext()
 
     # ------------------------------------------------------------------ loop
     def _train_loader(self, epoch: int) -> DataLoader:
@@ -213,6 +241,8 @@ class Trainer:
                 self.scaler.step(self.opt)
                 self.scaler.update()
                 self.opt.zero_grad(set_to_none=True)
+                if self.ema is not None:
+                    self.ema.update(self.model)
                 if not isinstance(self.sched, torch.optim.lr_scheduler.ReduceLROnPlateau):
                     self.sched.step()
             total += float(loss.detach()) * len(y)
@@ -229,7 +259,8 @@ class Trainer:
             if self.finished:
                 break
             tr_loss = self._train_epoch(epoch)
-            preds = predict(self.model, self.val_ds, self.t, self.device)
+            with self._eval_weights():
+                preds = predict(self.model, self.val_ds, self.t, self.device)
             val = summarize_predictions(preds)
             rec = dict(epoch=epoch + 1, train_loss=tr_loss, **{f"val_{k}": v for k, v in val.items()}, lr_head=self.opt.param_groups[-1]["lr"], seconds=self._epoch_seconds)
             if self.t.monitor not in rec:
@@ -240,7 +271,8 @@ class Trainer:
             pd.DataFrame(self.history).to_csv(self.run_dir / "metrics.csv", index=False)
             improved = self.stopper.step(rec[self.t.monitor])
             if improved:
-                atomic_save(dict(model=model_state(self.model, bool(self.t.save_trainable_only) and bool(self.cfg.model.pretrained)), epoch=epoch + 1, metric=rec[self.t.monitor], fp=self.fp), self.best_path)
+                with self._eval_weights():
+                    atomic_save(dict(model=model_state(self.model, bool(self.t.save_trainable_only) and bool(self.cfg.model.pretrained)), epoch=epoch + 1, metric=rec[self.t.monitor], fp=self.fp), self.best_path)
                 preds.to_csv(self.run_dir / "val_predictions_best.csv", index=False)
             log.info("epoch %d  train_loss %.4f  val_loss %.4f  val_auroc %.4f%s", epoch + 1, tr_loss, rec["val_loss"], rec.get("val_auroc", float("nan")), "  *" if improved else "")
             self.finished = self.stopper.should_stop or (epoch + 1) == int(self.t.epochs)
@@ -251,6 +283,6 @@ class Trainer:
             raise RuntimeError(f"no usable checkpoint: the monitored metric '{self.t.monitor}' was NaN in every epoch (validation set lacks a class?)")
         best = torch.load(self.best_path, map_location="cpu", weights_only=False)
         load_model_state(self.model, best["model"])
-        summary = dict(best_epoch=best["epoch"], best_metric=best["metric"], monitor=self.t.monitor, epochs_run=len(self.history), stopped_early=len(self.history) < int(self.t.epochs), config_fingerprint=self.fp)
+        summary = dict(best_epoch=best["epoch"], best_metric=best["metric"], monitor=self.t.monitor, epochs_run=len(self.history), stopped_early=len(self.history) < int(self.t.epochs), config_fingerprint=self.fp, ema=self.ema is not None)
         (self.run_dir / "train_summary.json").write_text(json.dumps(summary, indent=2))
         return summary

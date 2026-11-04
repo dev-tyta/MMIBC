@@ -1,0 +1,13 @@
+# Synthetic mammography + ultrasound pairing with BrEaST-Lesions-USG held out ENTIRELY as an external ultrasound test source.
+# Training/validation/test ultrasound come from BUSI + BUS-BRA; BrEaST (a different institution and device mix, 256 cases) is only ever seen
+# at test time, paired with the held-out VinDr mammograms, and is reported as the `ext_test` split next to the internal test.
+# Needs `mmibc download breast_lesions_usg`; `prepare us` builds its source_manifest.csv from the clinical spreadsheet.
+task:
+  kind: synthetic_pairs
+  pair_mode: label_matched
+model:
+  shared_backbone: false
+  fusion: xattn
+data:
+  us_sources: [busi, bus_bra, breast_lesions_usg]
+  us_external_source: breast_lesions_usg

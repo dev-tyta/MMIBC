@@ -64,19 +64,33 @@ class Affine:
         return (x0 * self.scale + self.pad_x, y0 * self.scale + self.pad_y, x1 * self.scale + self.pad_x, y1 * self.scale + self.pad_y)
 
 
-def letterbox_params(width: int, height: int, size: int) -> Affine:
-    s = size / max(width, height)
+def as_hw(size) -> tuple[int, int]:
+    """Model-input size as (height, width): an int means a square, a 2-sequence is (height, width)."""
+    if isinstance(size, (int, float)):
+        return int(size), int(size)
+    h, w = (int(v) for v in size)
+    return h, w
+
+
+def letterbox_params(width: int, height: int, size) -> Affine:
+    """Geometry of resizing a (width x height) image into the ``size`` canvas (int -> square, (H, W) -> rectangle), aspect preserved."""
+    H, W = as_hw(size)
+    s = min(W / width, H / height)
     nw, nh = max(1, round(width * s)), max(1, round(height * s))
-    return Affine(s, (size - nw) // 2, (size - nh) // 2)
+    return Affine(s, (W - nw) // 2, (H - nh) // 2)
 
 
-def letterbox_square(img: Image.Image, size: int, fill: int = 0) -> tuple[Image.Image, Affine]:
-    """Resize preserving aspect ratio, then centre-pad to a size x size square (no distortion)."""
-    aff = letterbox_params(img.width, img.height, size)
+def letterbox(img: Image.Image, size, fill: int = 0) -> tuple[Image.Image, Affine]:
+    """Resize preserving aspect ratio, then centre-pad to the ``size`` canvas (no distortion). ``size``: int (square) or (H, W)."""
+    H, W = as_hw(size)
+    aff = letterbox_params(img.width, img.height, (H, W))
     nw, nh = max(1, round(img.width * aff.scale)), max(1, round(img.height * aff.scale))
-    canvas = Image.new(img.mode, (size, size), fill)
+    canvas = Image.new(img.mode, (W, H), fill)
     canvas.paste(img.resize((nw, nh), Image.BILINEAR), (int(aff.pad_x), int(aff.pad_y)))
     return canvas, aff
+
+
+letterbox_square = letterbox  # historical name; accepts rectangles too
 
 
 def orig_box_to_processed(box: tuple[float, float, float, float], crop_xy: tuple[float, float], scale: float) -> tuple[float, float, float, float]:

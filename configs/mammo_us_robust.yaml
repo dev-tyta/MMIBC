@@ -1,0 +1,23 @@
+# Synthetic mammography + ultrasound pairing with the robust recipe (see vindr_multiview_robust.yaml) plus MODALITY DROPOUT:
+# in the first real runs the model leaned almost entirely on the ultrasound (dropping the mammogram cost 0.03 AUROC, dropping the
+# ultrasound 0.17); blanking one stream per sample forces each stream to carry signal on its own. NOT yet validated on real data.
+task:
+  kind: synthetic_pairs
+  pair_mode: label_matched
+model:
+  shared_backbone: false
+  fusion: xattn
+  unfreeze_last_n: 4
+  drop_path: 0.1
+data:
+  us_sources: [busi, bus_bra]
+input:
+  image_size_a: [448, 266]
+  image_size_b: 224
+training:
+  batch_size: 16
+  grad_accum_steps: 2
+  layer_decay: 0.8
+  label_smoothing: 0.05
+  ema_decay: 0.998
+  modality_dropout: 0.25

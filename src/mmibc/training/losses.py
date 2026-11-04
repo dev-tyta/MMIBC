@@ -35,13 +35,18 @@ def class_weights(counts: np.ndarray) -> torch.Tensor:
 
 def build_loss(tcfg, class_counts: np.ndarray, device: torch.device) -> nn.Module:
     name = tcfg.loss
+    ls = float(tcfg.get("label_smoothing", 0.0))
+    if not 0.0 <= ls < 0.5:
+        raise ValueError(f"training.label_smoothing must be in [0, 0.5), got {ls}")
     if name == "ce":
-        return nn.CrossEntropyLoss()
+        return nn.CrossEntropyLoss(label_smoothing=ls)
     w = class_weights(class_counts).to(device)
     if tcfg.sampler == "balanced":
         log.warning("loss=%s together with a balanced sampler corrects class imbalance twice; prefer loss=ce with sampler=balanced, or sampler=none.", name)
     if name == "weighted_ce":
-        return nn.CrossEntropyLoss(weight=w)
+        return nn.CrossEntropyLoss(weight=w, label_smoothing=ls)
     if name == "focal":
+        if ls > 0:
+            log.warning("training.label_smoothing is ignored by the focal loss")
         return FocalLoss(float(tcfg.focal_gamma), w)
     raise ValueError(f"unknown loss '{name}'")

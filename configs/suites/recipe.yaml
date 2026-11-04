@@ -1,0 +1,15 @@
+# Which training-recipe change actually helps on VinDr CC<->MLO?  One change at a time against the baseline, then combinations.
+# One seed each is only a screen: a difference below ~0.02 AUROC is inside the test confidence interval. Re-run the 2-3 best (and the
+# baseline) with `--seeds 42 43 44 --only baseline <names>`; the summary then reports mean +- sd and the seed ensemble.
+config: vindr_multiview.yaml
+reference: baseline
+split_seed: 42
+runs:
+  - {name: baseline,      set: []}
+  - {name: smooth,        set: [training.label_smoothing=0.05]}
+  - {name: ema,           set: [training.ema_decay=0.998]}
+  - {name: smooth_ema,    set: [training.label_smoothing=0.05, training.ema_decay=0.998]}
+  - {name: hires,         set: ["input.image_size_a=[448,266]", training.batch_size=16, training.grad_accum_steps=2]}
+  - {name: hires_smooth_ema, set: ["input.image_size_a=[448,266]", training.batch_size=16, training.grad_accum_steps=2, training.label_smoothing=0.05, training.ema_decay=0.998]}
+  - {name: deeper,        set: [model.unfreeze_last_n=4, training.layer_decay=0.8, model.drop_path=0.1]}
+  - {name: robust,        set: ["input.image_size_a=[448,266]", training.batch_size=16, training.grad_accum_steps=2, training.label_smoothing=0.05, training.ema_decay=0.998, model.unfreeze_last_n=4, training.layer_decay=0.8, model.drop_path=0.1]}

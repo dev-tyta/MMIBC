@@ -95,6 +95,56 @@ def make_fake_extra_us(raw_root: Path, source: str = "extra_us", n: int = 20, se
             Image.fromarray(body).save(d / f"{i}.png")
 
 
+def make_fake_bus_bra(raw_root: Path, n_patients: int = 16, seed: int = 4) -> None:
+    """BUS-BRA layout as observed on the first real run: bus_75/BUSBRA/{Images/bus_0001-l.png, Masks/mask_0001-l.png, bus_data.csv}
+    (one row per breast; the left and right breast of a patient share ``Case``)."""
+    rng = np.random.default_rng(seed)
+    base = Path(raw_root) / "bus_bra" / "BUSBRA"
+    (base / "Images").mkdir(parents=True, exist_ok=True)
+    (base / "Masks").mkdir(parents=True, exist_ok=True)
+    rows = []
+    for case in range(1, n_patients + 1):
+        for side in ("l", "r"):
+            lab = int(rng.random() < 0.35)
+            body, box = _blob_image(rng, 100, 120, lab)
+            i = f"bus_{case:04d}-{side}"
+            Image.fromarray(body).save(base / "Images" / f"{i}.png")
+            m = np.zeros((100, 120), np.uint8)
+            m[box[1] : box[3], box[0] : box[2]] = 255
+            Image.fromarray(m).save(base / "Masks" / f"mask_{case:04d}-{side}.png")
+            rows.append(dict(ID=i, Case=case, Histology="x", Pathology="malignant" if lab else "benign", BIRADS=4 if lab else 3, Device="d",
+                             Width=120, Height=100, Side="left" if side == "l" else "right", BBOX=str(list(box))))
+    pd.DataFrame(rows).to_csv(base / "bus_data.csv", index=False)
+    pd.DataFrame(rows)[["ID", "Pathology"]].assign(kFold=0).to_csv(base / "5-fold-cv.csv", index=False)
+
+
+def make_fake_breast_lesions(raw_root: Path, n_benign: int = 12, n_malignant: int = 8, n_normal: int = 2, seed: int = 5) -> None:
+    """BrEaST-Lesions-USG layout: a flat folder of caseNNN.png / caseNNN_tumor.png and a clinical spreadsheet whose first sheet has
+    CaseID, Image_filename, Mask_tumor_filename, Mask_other_filename, ..., Verification, Diagnosis, Classification (+ a data-dictionary sheet)."""
+    rng = np.random.default_rng(seed)
+    root = Path(raw_root) / "breast_lesions_usg"
+    d = root / "BrEaST-Lesions_USG-images_and_masks"
+    d.mkdir(parents=True, exist_ok=True)
+    rows, k = [], 0
+    for cls, n in (("benign", n_benign), ("malignant", n_malignant), ("normal", n_normal)):
+        for _ in range(n):
+            k += 1
+            body, box = _blob_image(rng, 100, 120, int(cls == "malignant"))
+            Image.fromarray(body).save(d / f"case{k:03d}.png")
+            mask = ""
+            if cls != "normal":
+                m = np.zeros((100, 120), np.uint8)
+                m[box[1] : box[3], box[0] : box[2]] = 255
+                Image.fromarray(m).save(d / f"case{k:03d}_tumor.png")
+                mask = f"case{k:03d}_tumor.png"
+            rows.append(dict(CaseID=k, Image_filename=f"case{k:03d}.png", Mask_tumor_filename=mask or np.nan, Mask_other_filename=np.nan, Pixel_size=0.007, Age=50,
+                             Verification="not applicable" if cls == "normal" else ("confirmed by biopsy" if k % 3 else "confirmed by follow-up care"),
+                             Diagnosis="not applicable", Classification=cls))
+    with pd.ExcelWriter(root / "BrEaST-Lesions-USG-clinical-data-Dec-15-2023.xlsx") as xw:
+        pd.DataFrame(rows).to_excel(xw, sheet_name="BrEaST-Lesions-USG clinical dat", index=False)
+        pd.DataFrame(dict(type=["int", "str"], description=["id", "file"])).to_excel(xw, sheet_name="Data Dictionary", index=False)
+
+
 def make_fake_real_pairs(out_root: Path, n_cases: int = 12, seed: int = 3) -> Path:
     """Stand-in for a processed real mammogram+ultrasound pair set (KAU-BCMD-like). Writes images + pairs_manifest.csv."""
     rng = np.random.default_rng(seed)

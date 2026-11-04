@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from mmibc.data.datasets import PairDataset
-from mmibc.evaluation.metrics import all_metrics, bootstrap_ci, choose_threshold
+from mmibc.evaluation.metrics import all_metrics, apply_calibration, bootstrap_ci, calibration, choose_threshold, fit_calibration, operating_points
 from mmibc.evaluation.stats import delong_ci
 from mmibc.training.trainer import predict
 
@@ -37,7 +37,7 @@ def shuffled_partner_dataset(ds: PairDataset, seed: int) -> PairDataset:
     return PairDataset(pairs, ds.root_a, ds.root_b, ds.tf_a, ds.tf_b)
 
 
-def _split_metrics(pred: pd.DataFrame, thr: float, n_boot: int) -> dict:
+def _split_metrics(pred: pd.DataFrame, thr: float, n_boot: int, pv: pd.DataFrame | None = None, ops: bool = False) -> dict:
     y, p = pred["y"].to_numpy(), pred["p"].to_numpy()
     m = all_metrics(y, p, thr)
     ci = bootstrap_ci(y, p, thr, n=n_boot)
@@ -45,12 +45,35 @@ def _split_metrics(pred: pd.DataFrame, thr: float, n_boot: int) -> dict:
     if len(np.unique(y)) == 2:
         a, lo, hi = delong_ci(y, p)
         m["auroc_delong_ci"] = [lo, hi]
+    if "p_raw" in pred:  # calibration quality BEFORE recalibration, so the effect of the fit stays visible
+        raw = calibration(y, pred["p_raw"].to_numpy())
+        m["raw"] = {f"raw_{k}": v for k, v in raw.items()}
+    if ops and pv is not None:
+        m["operating_points"] = operating_points(pv["y"].to_numpy(), pv["p"].to_numpy(), y, p)
     return m
 
 
-def evaluate_model(model, datasets: dict[str, PairDataset], cfg, run_dir: Path, device) -> dict:
-    """Predict every split, pick the threshold on validation, report test (and ext_test) with CIs, then run controls.
+def _calibrated(df: pd.DataFrame, cal: dict) -> pd.DataFrame:
+    """Keep the raw probability as ``p_raw`` and replace ``p`` by the recalibrated one (every downstream consumer reads ``p``)."""
+    out = df.copy()
+    out["p_raw"] = out["p"]
+    if cal["method"] != "none" and "logit" in out:
+        out["p"] = apply_calibration(out["logit"].to_numpy(), cal)
+    return out
 
+
+def eval_fingerprint(cfg) -> str:
+    """Hash of everything that changes what ``evaluate_model`` computes (so a finished run is re-evaluated, not retrained, when it changes)."""
+    import hashlib
+
+    blob = json.dumps({k: (dict(v) if hasattr(v, "keys") else v) for k, v in dict(cfg.eval).items()}, sort_keys=True, default=str)
+    return hashlib.sha1(blob.encode()).hexdigest()[:12]
+
+
+def evaluate_model(model, datasets: dict[str, PairDataset], cfg, run_dir: Path, device) -> dict:
+    """Predict every split, recalibrate on validation, pick the threshold on validation, report test (and ext_test) with CIs, then run controls.
+
+    Everything fitted here (calibration map, thresholds) uses the validation split only and is then frozen for the other splits.
     controls: none | drop_a | drop_b | shuffle_b  (reported on 'test').  If a control barely changes the score, the model
     ignores that stream or the pairing carries no usable information - that is the measurement, not a failure.
     """
@@ -58,14 +81,18 @@ def evaluate_model(model, datasets: dict[str, PairDataset], cfg, run_dir: Path, 
     ecfg, tcfg = cfg.eval, cfg.training
     if "val" not in datasets:
         raise ValueError("evaluation needs a 'val' split to choose the decision threshold")
-    preds = {s: predict(model, ds, tcfg, device) for s, ds in datasets.items()}
+    raw_preds = {s: predict(model, ds, tcfg, device) for s, ds in datasets.items()}
+    pv_raw = raw_preds["val"]
+    cal = fit_calibration(pv_raw["y"].to_numpy(), pv_raw["logit"].to_numpy(), str(ecfg.get("calibration", "none"))) if "logit" in pv_raw else fit_calibration([], [], "none")
+    preds = {s: _calibrated(df, cal) for s, df in raw_preds.items()}
     for s, df in preds.items():
         df.to_csv(run_dir / f"predictions_{s}.csv", index=False)
     pv = preds["val"]
-    thr = choose_threshold(pv["y"].to_numpy(), pv["p"].to_numpy(), ecfg.threshold_method, float(ecfg.sens_target))
-    out: dict = dict(threshold=thr, threshold_method=ecfg.threshold_method, threshold_chosen_on="val", splits={})
+    thr = choose_threshold(pv["y"].to_numpy(), pv["p"].to_numpy(), ecfg.threshold_method, float(ecfg.spec_target if ecfg.threshold_method == "spec_target" else ecfg.sens_target))
+    ops = bool(ecfg.get("operating_points", False))
+    out: dict = dict(threshold=thr, threshold_method=ecfg.threshold_method, threshold_chosen_on="val", calibration=cal, eval_fingerprint=eval_fingerprint(cfg), splits={})
     for s, df in preds.items():
-        out["splits"][s] = _split_metrics(df, thr, int(ecfg.bootstrap_samples))
+        out["splits"][s] = _split_metrics(df, thr, int(ecfg.bootstrap_samples), pv, ops)
     if "test" in datasets and len(ecfg.controls):
         base = out["splits"]["test"]["auroc"]
         rows = []
@@ -73,9 +100,9 @@ def evaluate_model(model, datasets: dict[str, PairDataset], cfg, run_dir: Path, 
             if ctrl == "none":
                 df = preds["test"]
             elif ctrl in ("drop_a", "drop_b"):
-                df = predict(model, datasets["test"], tcfg, device, drop=ctrl[-1])
+                df = _calibrated(predict(model, datasets["test"], tcfg, device, drop=ctrl[-1]), cal)
             elif ctrl == "shuffle_b":
-                df = predict(model, shuffled_partner_dataset(datasets["test"], int(cfg.task.eval_pair_seed)), tcfg, device)
+                df = _calibrated(predict(model, shuffled_partner_dataset(datasets["test"], int(cfg.task.eval_pair_seed)), tcfg, device), cal)
             else:
                 raise ValueError(f"unknown control '{ctrl}'")
             m = _split_metrics(df, thr, max(50, int(ecfg.bootstrap_samples) // 4))
