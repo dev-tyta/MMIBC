@@ -143,6 +143,6 @@ def test_url_returning_html_is_reported_as_such(tmp_path, monkeypatch):
             yield b"<!DOCTYPE html><html><body>moved</body></html>"
 
     monkeypatch.setattr(requests, "get", lambda *a, **k: Resp())
-    with pytest.raises(RuntimeError, match=r"web page \(HTML\).*instead of a zip"):
+    with pytest.raises(RuntimeError, match=r"web page \(HTML\).*not a zip"):
         dl._download_url("https://example.org/Dataset.zip", tmp_path / "d")
     assert not (tmp_path / "d" / "download.zip").exists()                 # the bad file is not left behind

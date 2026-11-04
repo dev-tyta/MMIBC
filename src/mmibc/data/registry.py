@@ -20,6 +20,7 @@ class DatasetSpec:
     verified: bool = False
     fallback_urls: tuple[str, ...] = ()
     extra_files: tuple[tuple[str, str], ...] = ()  # (file name, url): plain files saved next to the archive (e.g. a label spreadsheet)
+    md5: str = ""  # published MD5 of the main zip: checked after downloading, and for a zip placed in the folder by hand
 
 
 IMG = "**/*.png|**/*.jpg|**/*.jpeg"
@@ -35,21 +36,28 @@ REGISTRY: dict[str, DatasetSpec] = {
         note="VinDr-Mammo breast-level and finding-level annotation CSVs. Slug from the legacy fetch_data.py.", verified=True,
     ),
     "busi": DatasetSpec(
-        "busi", "kaggle", "aryashah2k/breast-ultrasound-images-dataset", ("**/benign/*.png", "**/malignant/*.png"),
+        "busi", "kaggle", "sabahesaraki/breast-ultrasound-images-dataset", ("**/benign/*.png", "**/malignant/*.png"),
         note=(
-            "BUSI. UNVERIFIED Kaggle mirror slug. The Cairo University URL from the legacy code no longer serves the zip "
-            "(Nov 2026: it returned a ~19 kB web page), so it only remains as a last-resort fallback. If the Kaggle slug fails, "
-            "download BUSI by hand into <local>/raw/busi/ (it must contain benign/, malignant/ and normal/ folders)."
+            "BUSI (Al-Dhabyani et al.). Kaggle mirror chosen by the maintainer; the page exists but its file listing could not be "
+            "read from my sandbox, so the layout is UNVERIFIED: expect benign/, malignant/ and normal/ folders with a *_mask.png next to "
+            "each image (masks are skipped automatically). The original Cairo University link no longer serves the file, so there "
+            "is no URL fallback. If the download fails, get BUSI by hand and put the zip (or the folders) into this dataset's raw folder."
         ),
-        fallback_urls=("https://scholar.cu.edu.eg/Dataset_BUSI.zip",),
     ),
     "bus_bra": DatasetSpec(
         "bus_bra", "url", "https://zenodo.org/records/8231412/files/BUSBRA.zip?download=1", (IMG,),
         note=(
-            "BUS-BRA: 1,064 patients, biopsy-proven tumours, BI-RADS 2-5, segmentation masks, CC BY 4.0, ~134 MB zip on Zenodo "
-            "(DOI 10.5281/zenodo.8231412). The exact file URL and the internal layout are unverified: after downloading run "
+            "BUS-BRA: 1,064 patients, biopsy-proven tumours, BI-RADS 2-5, segmentation masks, CC BY 4.0 (DOI 10.5281/zenodo.8231412). "
+            "The record page lists one open file, BUSBRA.zip (133.9 MB, MD5 1f8b2be6476d58fc97bfb5e5a1ea9bab), at the URL used here. "
+            "If Zenodo refuses the request from your runtime (HTTP 403), download BUSBRA.zip in a browser and put it into this "
+            "dataset's raw folder on Drive: `mmibc download bus_bra` unpacks and checks it. The internal layout is unverified: run "
             "`mmibc inspect bus_bra`, then write raw/bus_bra/source_manifest.csv (see ultrasound.load_source_manifest)."
         ),
+        fallback_urls=(
+            "https://zenodo.org/api/records/8231412/files/BUSBRA.zip/content",  # the documented REST download endpoint
+            "https://zenodo.org/record/8231412/files/BUSBRA.zip?download=1",  # older URL form
+        ),
+        md5="1f8b2be6476d58fc97bfb5e5a1ea9bab",
     ),
     "breast_lesions_usg": DatasetSpec(
         "breast_lesions_usg", "url",
@@ -58,8 +66,8 @@ REGISTRY: dict[str, DatasetSpec] = {
         note=(
             "BrEaST-Lesions-USG (Pawlowska et al., Sci Data 2024), hosted on TCIA. Intended as the EXTERNAL ultrasound test source. "
             "Two files are fetched: the images-and-masks zip and the clinical-data spreadsheet (the zip name suggests it holds images "
-            "and masks only, so the labels are expected in the spreadsheet). Both URLs come from the maintainer; neither could be opened "
-            "from my sandbox, so the zip layout, the spreadsheet columns and the licence are UNVERIFIED. Run `mmibc inspect "
+            "and masks only, so the labels are expected in the spreadsheet). Both URLs come from the maintainer and the download was confirmed to work from Colab (69.9 MB zip + 40 kB "
+            "spreadsheet); the zip layout, the spreadsheet columns and the licence are still UNVERIFIED. Run `mmibc inspect "
             "breast_lesions_usg` (it prints the spreadsheet's columns and value counts), then write raw/breast_lesions_usg/source_manifest.csv "
             "(uid, raw_path, class_name[, mask_paths, patient_id])."
         ),

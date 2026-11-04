@@ -53,7 +53,7 @@ def _cfg(a):
 
 # ----------------------------------------------------------------------------------------------- commands
 def cmd_download(a):
-    from mmibc.data.download import download_dataset
+    from mmibc.data.download import download_dataset, is_downloaded, setup_kaggle_credentials
     from mmibc.data.registry import REGISTRY
 
     paths = _paths(a, _cfg(a))  # same config as prepare/train, so every stage agrees on where raw data lives
@@ -67,11 +67,20 @@ def cmd_download(a):
         return 2
     where = "Google Drive" if paths.raw_on_drive else "local disk"
     print(f"saving raw downloads to {paths.raw} ({where})")
+    # Check the Kaggle credentials once, up front: six identical failures would bury the one fix that is needed.
+    wants_kaggle = [k for k in keys if REGISTRY[k].kind == "kaggle" and (a.force or not is_downloaded(k, paths))]
+    use_kaggle = True
+    if wants_kaggle:
+        try:
+            setup_kaggle_credentials()
+        except RuntimeError as exc:
+            use_kaggle = False
+            print(f"\n!! Kaggle credentials are not available, so the Kaggle datasets will be skipped: {', '.join(wants_kaggle)}\n{exc}\n", file=sys.stderr)
     results: dict[str, str] = {}
     for i, k in enumerate(keys, 1):
         print(f"[{i}/{len(keys)}] {k}")
         try:
-            print(f"{k}: {download_dataset(k, paths, a.force)}")
+            print(f"{k}: {download_dataset(k, paths, a.force, use_kaggle)}")
             results[k] = "ok"
         except Exception as exc:  # noqa: BLE001  one failing dataset must not hide the others
             print(f"{k}: FAILED - {exc}", file=sys.stderr)

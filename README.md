@@ -64,8 +64,8 @@ The corrections are drawn in `paper/figures/` (TikZ, vector) and tested; see *Fi
 | key | what | status |
 |---|---|---|
 | `vindr_images`, `vindr_annotations` | VinDr-Mammo (PNG conversion, annotations) | Kaggle slugs from the legacy code |
-| `busi` | BUSI | Kaggle mirror slug **unverified** |
-| `bus_bra` | BUS-BRA ultrasound (Zenodo, CC BY 4.0) | URL download |
+| `busi` | BUSI | Kaggle mirror `sabahesaraki/breast-ultrasound-images-dataset` (chosen by the maintainer; layout unverified, inspect first). The original Cairo link is dead |
+| `bus_bra` | BUS-BRA ultrasound (Zenodo, CC BY 4.0) | URL verified against the record page and checked by MD5; if Zenodo refuses the download, put `BUSBRA.zip` into `raw/bus_bra/` by hand |
 | `kau_bcmd` | KAU-BCMD, real mammogram + ultrasound pairs | Kaggle slug; layout unknown, inspect first |
 | `bus_uclm` | BUS-UCLM ultrasound (lesion segmentation) | Kaggle slug from the page title; layout unknown, inspect first |
 | `cmmd` | CMMD, **mammography** (biopsy-confirmed), not ultrasound | Kaggle slug from the page title; layout unknown, inspect first; no `prepare` step consumes it yet |

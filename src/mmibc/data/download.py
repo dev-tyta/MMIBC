@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -127,35 +128,99 @@ def _place(src: Path, dest: Path, copy: bool) -> None:
             shutil.move(str(item), str(target))
 
 
-def _download_url(url: str, dest: Path) -> None:
+_UA_DEFAULT = "Mozilla/5.0"
+_UA_TOOL = "mmibc/0.2 (+https://github.com/dev-tyta/MMIBC; python-requests)"
+
+
+def _http_get(url: str):
+    """GET ``url`` as a streaming response, or raise a RuntimeError that says what the server actually answered.
+
+    A 403 is retried once with a User-Agent that names this tool (some hosts refuse anonymous or browser-like agents). The
+    status and the start of the reply are put in the error: a bare "403 Forbidden" cannot be diagnosed.
+    """
+    import requests
+
+    r = None
+    for ua in (_UA_DEFAULT, _UA_TOOL):
+        r = requests.get(url, stream=True, timeout=60, headers={"User-Agent": ua})
+        if getattr(r, "status_code", 200) != 403 or ua == _UA_TOOL:
+            break
+        r.close()
+    status = getattr(r, "status_code", 200)
+    if status >= 400:
+        try:
+            body = " ".join(r.content[:400].decode("utf-8", "replace").split())[:160]
+        except Exception:  # noqa: BLE001
+            body = ""
+        r.close()
+        raise RuntimeError(f"{url} answered HTTP {status} {getattr(r, 'reason', '') or ''}".rstrip() + (f" with: {body!r}" if body else ""))
+    return r
+
+
+def _save_stream(r, path: Path) -> None:
+    from tqdm import tqdm
+
+    total = int(r.headers.get("content-length", 0))
+    with r, open(path, "wb") as f, tqdm(total=total, unit="B", unit_scale=True) as bar:
+        for chunk in r.iter_content(1 << 20):
+            f.write(chunk)
+            bar.update(len(chunk))
+
+
+def _md5(path: Path) -> str:
+    h = hashlib.md5()  # noqa: S324  integrity check against a published checksum, not security
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _unpack_zip(zpath: Path, dest: Path, md5: str, label: str) -> None:
+    """Check a zip (is it a zip? does it match the published MD5?) and extract it into ``dest``."""
+    if not zipfile.is_zipfile(zpath):
+        size = zpath.stat().st_size
+        head = zpath.read_bytes()[:200].lstrip().lower()
+        kind = "a web page (HTML)" if head.startswith((b"<!doctype", b"<html")) or b"<html" in head else "something that is not a zip archive"
+        raise RuntimeError(f"{label} is {kind} of {size:,} bytes, not a zip file: the link is probably dead, moved, or needs a browser")
+    if md5 and (got := _md5(zpath)) != md5.lower():
+        raise RuntimeError(f"{label}: MD5 {got} does not match the published {md5}; the file is corrupt, incomplete or a different version")
+    with zipfile.ZipFile(zpath) as z:
+        _check_space(dest, sum(i.file_size for i in z.infolist()), label)
+        z.extractall(dest)
+
+
+def _download_url(url: str, dest: Path, md5: str = "") -> None:
     """Download a zip to local temporary storage and extract it into ``dest`` (which may be on Drive).
 
     The archive itself is never written to ``dest``: that halves the writes to Drive and leaves no stray zip behind.
     """
-    import requests
-    from tqdm import tqdm
-
     dest.mkdir(parents=True, exist_ok=True)
     tmpdir = Path(tempfile.mkdtemp(prefix="mmibc_dl_"))
     try:
         zpath = tmpdir / "download.zip"
-        with requests.get(url, stream=True, timeout=60, headers={"User-Agent": "Mozilla/5.0"}) as r:
-            r.raise_for_status()
-            total = int(r.headers.get("content-length", 0))
-            with open(zpath, "wb") as f, tqdm(total=total, unit="B", unit_scale=True) as bar:
-                for chunk in r.iter_content(1 << 20):
-                    f.write(chunk)
-                    bar.update(len(chunk))
-        if not zipfile.is_zipfile(zpath):
-            size = zpath.stat().st_size
-            head = zpath.read_bytes()[:200].lstrip().lower()
-            kind = "a web page (HTML)" if head.startswith((b"<!doctype", b"<html")) or b"<html" in head else "something that is not a zip archive"
-            raise RuntimeError(f"{url} returned {kind} of {size:,} bytes instead of a zip file: the link is probably dead, moved, or needs a browser")
-        with zipfile.ZipFile(zpath) as z:
-            _check_space(dest, sum(i.file_size for i in z.infolist()), url)
-            z.extractall(dest)
+        _save_stream(_http_get(url), zpath)
+        _unpack_zip(zpath, dest, md5, url)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _unpack_local_zips(spec: DatasetSpec, dest: Path) -> tuple[bool, list[str]]:
+    """Use a zip that was placed in the dataset folder by hand (e.g. downloaded in a browser and uploaded to Drive).
+
+    This is the way out when a host refuses automated downloads. The zip is checked against the published MD5 when known and
+    is left in place.
+    """
+    errors: list[str] = []
+    for z in sorted(Path(dest).glob("*.zip")):
+        try:
+            log.info("Using the zip found in %s: %s", dest, z.name)
+            _unpack_zip(z, dest, spec.md5, z.name)
+            if not _main_missing(spec, dest):
+                return True, errors
+            errors.append(f"{z.name}: unpacked, but it does not contain what '{spec.key}' needs ({spec.expected})")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{z.name}: {exc}")
+    return False, errors
 
 
 def _tree_bytes(path: Path) -> int:
@@ -180,18 +245,9 @@ def _check_space(dest: Path, need: int, what: str) -> None:
 
 def _download_file(url: str, target: Path) -> None:
     """Fetch one plain file (not an archive). A web page served in its place is reported as such and not kept."""
-    import requests
-    from tqdm import tqdm
-
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(target.name + ".part")
-    with requests.get(url, stream=True, timeout=60, headers={"User-Agent": "Mozilla/5.0"}) as r:
-        r.raise_for_status()
-        total = int(r.headers.get("content-length", 0))
-        with open(tmp, "wb") as f, tqdm(total=total, unit="B", unit_scale=True) as bar:
-            for chunk in r.iter_content(1 << 20):
-                f.write(chunk)
-                bar.update(len(chunk))
+    _save_stream(_http_get(url), tmp)
     head = tmp.read_bytes()[:200].lstrip().lower()
     if head.startswith((b"<!doctype", b"<html")) or b"<html" in head or tmp.stat().st_size == 0:
         size = tmp.stat().st_size
@@ -200,7 +256,13 @@ def _download_file(url: str, target: Path) -> None:
     tmp.replace(target)
 
 
-def download_dataset(key: str, paths: ProjectPaths, force: bool = False) -> Path:
+def is_downloaded(key: str, paths: ProjectPaths) -> bool:
+    """True if dataset ``key`` is fully present (not merely partly: a folder with the in-progress marker never counts)."""
+    dest = paths.raw / key
+    return dest.exists() and not (dest / INCOMPLETE_MARKER).exists() and not validate_download(REGISTRY[key], dest)
+
+
+def download_dataset(key: str, paths: ProjectPaths, force: bool = False, use_kaggle: bool = True) -> Path:
     """Fetch dataset ``key`` into ``paths.raw/<key>`` and validate it. Idempotent."""
     spec = REGISTRY[key]
     dest = paths.raw / key
@@ -220,7 +282,12 @@ def download_dataset(key: str, paths: ProjectPaths, force: bool = False) -> Path
     if not main_ok:
         marker.write_text("download in progress or interrupted; delete this folder or re-run `mmibc download`\n")
     errors: list[str] = []
-    if spec.kind == "kaggle" and not main_ok:
+    if not main_ok:  # a zip placed in the folder by hand beats any network access
+        main_ok, local_errors = _unpack_local_zips(spec, dest)
+        errors += local_errors
+    if spec.kind == "kaggle" and not main_ok and not use_kaggle:
+        errors.append("kaggle: skipped (no credentials, see the message above)")
+    elif spec.kind == "kaggle" and not main_ok:
         try:
             setup_kaggle_credentials()
             import kagglehub  # imported lazily: only needed for downloads
@@ -243,7 +310,7 @@ def download_dataset(key: str, paths: ProjectPaths, force: bool = False) -> Path
             break
         try:
             log.info("Downloading %s ...", url)
-            _download_url(url, dest)
+            _download_url(url, dest, spec.md5)
             main_ok = not _main_missing(spec, dest)
         except Exception as exc:
             errors.append(f"{url}: {exc}")
@@ -262,7 +329,7 @@ def download_dataset(key: str, paths: ProjectPaths, force: bool = False) -> Path
     missing += [name for name, _ in spec.extra_files if not (dest / name).is_file()]
     if missing:
         # A missing credential explains the failure on its own; the dataset note (slug, layout caveats) would only bury it.
-        no_creds = bool(errors) and all(("No Kaggle credentials" in e or "Kaggle credentials not visible" in e) for e in errors)
+        no_creds = bool(errors) and all(("No Kaggle credentials" in e or "Kaggle credentials not visible" in e or "no credentials" in e) for e in errors)
         detail = " Add the credentials (see above), then re-run." if no_creds else f" If this is the Kaggle slug, check {spec.note}"
         raise RuntimeError(f"Download of '{key}' incomplete. Missing: {missing}. Errors: {errors}.{detail}")
     marker.unlink(missing_ok=True)
