@@ -261,10 +261,10 @@ def download_dataset(key: str, paths: ProjectPaths, force: bool = False) -> Path
         missing = ["(the archive did not finish downloading; files from an earlier attempt may be present but cannot be trusted)"]
     missing += [name for name, _ in spec.extra_files if not (dest / name).is_file()]
     if missing:
-        raise RuntimeError(
-            f"Download of '{key}' incomplete. Missing: {missing}. Errors: {errors}. "
-            f"If this is the Kaggle slug, check {spec.note}"
-        )
+        # A missing credential explains the failure on its own; the dataset note (slug, layout caveats) would only bury it.
+        no_creds = bool(errors) and all(("No Kaggle credentials" in e or "Kaggle credentials not visible" in e) for e in errors)
+        detail = " Add the credentials (see above), then re-run." if no_creds else f" If this is the Kaggle slug, check {spec.note}"
+        raise RuntimeError(f"Download of '{key}' incomplete. Missing: {missing}. Errors: {errors}.{detail}")
     marker.unlink(missing_ok=True)
     log.info("%s ready at %s", key, dest)
     return dest

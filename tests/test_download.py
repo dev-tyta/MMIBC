@@ -260,3 +260,15 @@ def test_mount_failure_in_a_subprocess_is_reported_not_raised_raw(monkeypatch, t
     monkeypatch.setitem(sys.modules, "google.colab", colab)
     monkeypatch.setattr(P, "in_colab", lambda: True)
     assert P.mount_drive(str(tmp_path / "nodrive")) is False
+
+
+def test_a_credential_failure_is_not_buried_under_the_dataset_note(paths, monkeypatch):
+    for n in ("KAGGLE_API_TOKEN", "KAGGLE_USERNAME", "KAGGLE_KEY"):
+        monkeypatch.delenv(n, raising=False)
+    monkeypatch.setenv("HOME", str(paths.root))
+    monkeypatch.setattr(dl, "in_colab", lambda: False)
+    monkeypatch.setitem(sys.modules, "kagglehub", types.SimpleNamespace(dataset_download=lambda ref: ""))
+    with pytest.raises(RuntimeError) as e:
+        dl.download_dataset("cmmd", paths)
+    msg = str(e.value)
+    assert "No Kaggle credentials found" in msg and "UNKNOWN" not in msg and len(msg) < 1400
