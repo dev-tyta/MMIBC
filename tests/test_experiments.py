@@ -269,3 +269,32 @@ def test_a_processed_source_whose_raw_folder_is_gone_is_kept_when_another_source
     m = pd.read_csv(paths.processed / "ultrasound" / "manifest.csv")
     assert set(m["source"]) == {"busi", "extra_us", "extra_us2"} and m["uid"].is_unique
     assert dataset_state("us:nowhere", paths) == "missing"
+
+
+# ----------------------------------------------------------------------------------------------- a backbone that cannot load
+def test_a_backbone_that_cannot_load_fails_its_tracks_at_once_but_finished_tracks_are_still_reused(exp, first, monkeypatch):
+    paths, program, _ = exp
+
+    def broken(cfg):
+        raise RuntimeError("Error while deserializing header: header too large")
+
+    monkeypatch.setattr("mmibc.experiments._load_backbone", broken)
+    summary, rc = run_program(program, paths, GLOBAL, only=["t_vindr_mv", "t_bad"])
+    st = summary.set_index("track")["state"]
+    assert st["t_vindr_mv"] == "done (reused)"                                      # finished: needs no backbone
+    assert st["t_bad"].startswith("FAILED: backbone 'dinov2_tiny_test' cannot be loaded") and "header too large" in st["t_bad"]
+    assert "ValueError" not in st["t_bad"]                                          # the track itself was never started (that would fail on its input size)
+    assert rc == 1
+
+
+def test_a_healthy_backbone_is_loaded_once_for_all_unfinished_tracks(exp, first, monkeypatch):
+    from mmibc import experiments
+
+    paths, program, _ = exp
+    _, tracks = load_program(program)
+    calls = []
+    monkeypatch.setattr(experiments, "_load_backbone", lambda cfg: calls.append(str(cfg.model.backbone)))
+    bad = experiments.preflight_backbones(select_tracks(tracks), GLOBAL, paths)
+    assert bad == {} and calls == ["dinov2_tiny_test"]                              # one load, and only because t_bad / t_no_data still need training
+    calls.clear()
+    assert experiments.preflight_backbones(select_tracks(tracks, only=["t_vindr_mv"]), GLOBAL, paths) == {} and calls == []   # finished: no load

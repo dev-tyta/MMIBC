@@ -13,7 +13,8 @@ ultrasound), so the program never has to be told what you downloaded:
   tracks need, so a later track never finds a source missing and an earlier one never trains on a source it did not list);
 * a track whose dataset is not there is SKIPPED with the reason, and a track that fails is recorded as FAILED with its traceback; neither stops
   the others. Download or fix the cause and call the same command again: finished tracks are reused, only the missing ones are trained;
-* an unavailable gated backbone (DINOv3 without a Hugging Face token) skips the rows that need it, as in ``mmibc suite``;
+* an unavailable gated backbone (DINOv3 without a Hugging Face token) skips the rows that need it, as in ``mmibc suite``; every other backbone is
+  loaded once before any data is staged, so a damaged download fails the affected tracks at once instead of after minutes of staging each;
 * ``runs/experiments_<program>/`` holds ``plan.csv`` (before), ``status.csv`` (after every track, so a Colab disconnect loses nothing),
   ``summary.csv`` / ``summary.md`` (one row per track: test AUROC with its DeLong interval, external-test AUROC, per-subset AUROC) and
   ``FAILED_<track>.txt``.
@@ -224,6 +225,43 @@ def build_plan(tracks: list[Track], paths: ProjectPaths, overrides: list[str]) -
     return pd.DataFrame(rows)
 
 
+def _load_backbone(cfg) -> None:
+    from mmibc.models.backbones import make_backbone
+
+    make_backbone(str(cfg.model.backbone), pretrained=bool(cfg.model.pretrained))
+
+
+def _needs_training(cfg, paths: ProjectPaths, force: bool) -> bool:
+    """False for a run that already finished with this configuration (it is reused, so it needs no backbone)."""
+    return force or not cfg.training.resume or finished_metrics(cfg, run_dir_for(cfg, paths)) is None
+
+
+def preflight_backbones(tracks: list[Track], overrides: list[str], paths: ProjectPaths, force: bool = False) -> dict[str, str]:
+    """Load each distinct backbone of the unfinished run tracks once, BEFORE any data is staged. Returns {backbone: error} for those that cannot load.
+
+    A damaged or unreachable backbone fails every track identically, but only after minutes of data staging and auditing per track; this makes it
+    one message at the start (a damaged cache entry is repaired by the loader itself). Gated backbones without a token are not tested here:
+    the usual SKIPPED path reports them. Suite rows are not tested here either; the suite records a failing row and carries on.
+    """
+    seen: dict[str, object] = {}
+    for t in tracks:
+        if t.kind == "run":
+            cfg = track_configs(t, overrides)[0][1]
+            if unavailable_reason(str(cfg.model.backbone)) is None and _needs_training(cfg, paths, force):
+                seen.setdefault(str(cfg.model.backbone), cfg)
+    bad: dict[str, str] = {}
+    for name, cfg in seen.items():
+        t0 = time.time()
+        try:
+            _load_backbone(cfg)
+            log.info("backbone %s loads (%.0f s)", name, time.time() - t0)
+        except Exception as exc:  # noqa: BLE001
+            bad[name] = f"{type(exc).__name__}: {str(exc)[:300]}"
+            log.error("backbone %s cannot be loaded: %s", name, bad[name])
+        _free_memory()
+    return bad
+
+
 # ------------------------------------------------------------------------------------------------ results
 def _free_memory() -> None:
     gc.collect()
@@ -316,6 +354,7 @@ def run_program(
     out.mkdir(parents=True, exist_ok=True)
     plan.to_csv(out / "plan.csv", index=False)
 
+    bad_backbones = preflight_backbones(tracks, overrides, paths, force)
     needs = {n for t in tracks for _, c in track_configs(t, overrides) for n in needs_of(c)}
     prep = prepare_datasets(needs, paths, overrides)
     log.info("datasets: %s", ", ".join(f"{k}={'FAILED' if v.startswith('FAILED') else v}" for k, v in sorted(prep.items())))
@@ -336,6 +375,15 @@ def run_program(
             status.append(dict(**base, state=state))
             rows.append(dict(**base, state=state))
             log.warning("track %s: %s", t.name, state)
+            _write(out, spec, status, rows)
+            continue
+        broken = bad_backbones.get(str(cfgs[0][1].model.backbone)) if t.kind == "run" and _needs_training(cfgs[0][1], paths, force) else None
+        if broken:  # the same failure every time: do not stage and audit the data first
+            state = f"FAILED: backbone '{cfgs[0][1].model.backbone}' cannot be loaded: {broken}"
+            rc = 1
+            status.append(dict(**base, state=state))
+            rows.append(dict(**base, state=state))
+            log.error("track %s: %s", t.name, state)
             _write(out, spec, status, rows)
             continue
         t0 = time.time()

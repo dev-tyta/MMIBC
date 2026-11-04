@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import NamedTuple
 
 import torch
@@ -143,17 +144,31 @@ class ViTBackbone(nn.Module):
                 from mmibc.utils.hf import ensure_hf_token
 
                 ensure_hf_token()  # picks up HF_TOKEN / a saved login / the Colab secret before the first request
+            from mmibc.utils.hf import hf_cache_kwargs, looks_corrupt, purge_cached_repo
+
+            kw.update(hf_cache_kwargs())  # the Drive cache, even if huggingface_hub was imported before HF_HOME was set
             try:
-                self.model = AutoModel.from_pretrained(spec.hf_id, **kw)
+                try:
+                    self.model = AutoModel.from_pretrained(spec.hf_id, **kw)
+                except Exception as exc:  # a damaged cached file fails identically on every run: remove that repository once and download it again
+                    if not looks_corrupt(exc):
+                        raise
+                    gone = purge_cached_repo(spec.hf_id)
+                    log.warning("the cached copy of %s is damaged (%s); removed %s and downloading it again", spec.hf_id, str(exc).splitlines()[0][:120], [str(g) for g in gone] or "nothing (not found in the cache)")
+                    self.model = AutoModel.from_pretrained(spec.hf_id, force_download=True, **kw)
             except Exception as exc:  # gated / offline / bad id: say what to do
                 hint = (
                     f" '{spec.hf_id}' is a GATED repository: accept the licence on its Hugging Face page and expose a token "
                     "(Colab: add HF_TOKEN under Secrets, or run huggingface_hub.login())."
                 ) if spec.gated else ""
+                if looks_corrupt(exc):
+                    hint += f" The file is still unreadable after a fresh download: delete the folder models--{spec.hf_id.replace('/', '--')} under your Hugging Face cache by hand and retry."
                 raise RuntimeError(f"Could not load backbone '{name}' ({spec.hf_id}): {exc}.{hint}"
                                    + ("" if spec.verified else " (This id follows the naming scheme but was not confirmed from its model card: check it on huggingface.co.)")) from exc
         else:
-            cfg = AutoConfig.from_pretrained(spec.hf_id)
+            from mmibc.utils.hf import hf_cache_kwargs
+
+            cfg = AutoConfig.from_pretrained(spec.hf_id, **hf_cache_kwargs())
             if eager_attention:
                 cfg._attn_implementation = "eager"
             self.model = AutoModel.from_config(cfg)
@@ -225,7 +240,18 @@ class TVBackbone(nn.Module):
 
         fam = name[len("tv_"):]
         w = "DEFAULT" if pretrained else None
-        net = getattr(tvm, fam)(weights=w)
+        try:
+            net = getattr(tvm, fam)(weights=w)
+        except Exception as exc:  # a damaged cached checkpoint fails the same way on every run: remove that file once and download it again
+            from mmibc.utils.hf import looks_corrupt
+
+            if not (pretrained and looks_corrupt(exc)):
+                raise
+            url = tvm.get_model_weights(fam).DEFAULT.url
+            damaged = Path(torch.hub.get_dir()) / "checkpoints" / Path(url).name
+            log.warning("the cached checkpoint %s is damaged (%s); removing it and downloading it again", damaged, str(exc).splitlines()[0][:120])
+            damaged.unlink(missing_ok=True)
+            net = getattr(tvm, fam)(weights=w)
         if fam.startswith("resnet"):
             feats = nn.Sequential(net.conv1, net.bn1, net.relu, net.maxpool, net.layer1, net.layer2, net.layer3, net.layer4)
         else:
