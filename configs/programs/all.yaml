@@ -1,0 +1,40 @@
+# Every experiment of the paper, on every dataset that is available:  mmibc experiments
+#
+#   mmibc experiments --list          what would run, what is finished, what is blocked (nothing is prepared or trained)
+#   mmibc experiments --only cmmd     tracks by name or by group (vindr | robust | cmmd | external | suites)
+#   mmibc experiments --suites        also the multi-run suites (fusion ladders, backbone comparison); many more runs
+#
+# Datasets are derived from each track's configuration. A track whose dataset is not downloaded is SKIPPED (not an error): download it
+# and call the same command again, finished tracks are reused. VinDr (BI-RADS labels) and CMMD (biopsy labels) are never pooled.
+#
+# Run names reuse the ones already on Drive (multiview_xattn_s42_dinov2_base, pool_busi_busbra_*), so earlier results are picked up, not redone.
+description: >
+  Native CC-MLO fusion and mammogram + ultrasound pairing (with the pairing controls) on VinDr-Mammo and on CMMD, plus the external
+  ultrasound test on BrEaST. One row per track; every run was evaluated on frozen test pairs with a threshold fixed on validation.
+tracks:
+  # ---- VinDr-Mammo (BI-RADS suspicion labels, official split) ----------------------------------------------------------------------
+  - {name: vindr_multiview, group: vindr, config: vindr_multiview}
+  - {name: vindr_pool_label_matched,    group: vindr, config: mammo_us_pool, set: [run_name=pool_busi_busbra, task.pair_mode=label_matched]}
+  - {name: vindr_pool_random,           group: vindr, config: mammo_us_pool, set: [run_name=pool_busi_busbra, task.pair_mode=random]}
+  - {name: vindr_pool_shuffled_partner, group: vindr, config: mammo_us_pool, set: [run_name=pool_busi_busbra, task.pair_mode=shuffled_partner]}
+  # ---- the robust recipe (higher mammogram resolution, layer-wise lr decay, EMA, label smoothing, modality dropout) ------------------
+  - {name: vindr_multiview_robust, group: robust, config: vindr_multiview_robust, set: [run_name=robust_multiview]}
+  - {name: vindr_pool_robust,      group: robust, config: mammo_us_robust,        set: [run_name=robust_pool_busi_busbra]}
+  # ---- CMMD (biopsy labels, patient-level split carved by us). D1 = the shortcut-free subset (51 % malignant); D2 is 98 % malignant ----
+  - {name: cmmd_multiview_d1,  group: cmmd, config: cmmd_multiview, set: ["data.cmmd.subsets=[D1]", run_name=cmmd_mv_d1]}
+  - {name: cmmd_multiview_all, group: cmmd, config: cmmd_multiview, set: [run_name=cmmd_mv_all]}
+  - {name: cmmd_pool_d1_label_matched,    group: cmmd, config: cmmd_us_pool, set: ["data.cmmd.subsets=[D1]", run_name=cmmd_us_d1, task.pair_mode=label_matched]}
+  - {name: cmmd_pool_d1_random,           group: cmmd, config: cmmd_us_pool, set: ["data.cmmd.subsets=[D1]", run_name=cmmd_us_d1, task.pair_mode=random]}
+  - {name: cmmd_pool_d1_shuffled_partner, group: cmmd, config: cmmd_us_pool, set: ["data.cmmd.subsets=[D1]", run_name=cmmd_us_d1, task.pair_mode=shuffled_partner]}
+  # ---- external ultrasound test: BrEaST (another institution) seen only at test time, paired with held-out mammograms ----------------
+  - {name: vindr_external,   group: external, config: mammo_us_external, set: [run_name=pool_ext]}
+  - name: cmmd_external_d1
+    group: external
+    config: cmmd_us_pool
+    set: ["data.cmmd.subsets=[D1]", run_name=cmmd_ext_d1, "data.us_sources=[busi,bus_bra,breast_lesions_usg]", data.us_external_source=breast_lesions_usg]
+  # ---- suites (optional: --suites). Each is several runs on identical frozen test pairs; they write to runs/suite_<name>/ -----------
+  - {name: suite_ladder,          group: suites, suite: ladder,          optional: true}
+  - {name: suite_pool_ladder,     group: suites, suite: pool_ladder,     optional: true}
+  - {name: suite_cmmd_pool_ladder, group: suites, suite: cmmd_pool_ladder, optional: true, set: ["data.cmmd.subsets=[D1]"]}
+  - {name: suite_backbones,       group: suites, suite: backbones,       optional: true}
+  - {name: suite_backbones_cmmd,  group: suites, suite: backbones_cmmd,  optional: true, set: ["data.cmmd.subsets=[D1]"]}

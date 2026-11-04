@@ -1,0 +1,11 @@
+# The fusion ladder on CMMD (biopsy-labelled mammograms) x the BUSI + BUS-BRA ultrasound pool: does the second modality add anything?
+# Same design as pool_ladder.yaml; only the mammogram source differs. See cmmd_us_pool.yaml for the D1 / D2 caveat.
+config: cmmd_us_pool.yaml
+reference: concat
+runs:
+  - {name: unimodal_a, set: [model.fusion=unimodal_a]}   # mammogram only
+  - {name: unimodal_b, set: [model.fusion=unimodal_b]}   # ultrasound only
+  - {name: concat,     set: [model.fusion=concat]}
+  - {name: gated,      set: [model.fusion=gated]}
+  - {name: xattn,      set: [model.fusion=xattn]}
+  - {name: xattn_moddrop, set: [model.fusion=xattn, training.modality_dropout=0.25]}

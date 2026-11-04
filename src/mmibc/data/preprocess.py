@@ -101,7 +101,11 @@ def orig_box_to_processed(box: tuple[float, float, float, float], crop_xy: tuple
 
 
 def process_mammogram(src: str | Path, dst: str | Path, long_side: int, crop: bool = True) -> dict:
-    gray = load_gray_uint8(src)
+    return process_mammogram_array(load_gray_uint8(src), dst, long_side, crop)
+
+
+def process_mammogram_array(gray: np.ndarray, dst: str | Path, long_side: int, crop: bool = True) -> dict:
+    """Crop the breast, downscale and save an already decoded uint8 image (the DICOM route decodes first, the PNG route reads a file)."""
     h, w = gray.shape
     x0, y0, x1, y1 = breast_foreground_box(gray) if crop else (0, 0, w, h)
     img = Image.fromarray(gray[y0:y1, x0:x1])

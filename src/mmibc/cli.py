@@ -1,10 +1,11 @@
 """Command line: ``mmibc <command>``.  Everything is also callable from Python (see notebooks/colab_quickstart.ipynb).
 
     download   fetch raw datasets          inspect   show the structure of a raw dataset
-    manifest   build source_manifest.csv  prepare    raw -> processed            audit     split + merge-integrity audit (no training)
+    manifest   build source_manifest.csv  prepare    raw -> processed (vindr | us | cmmd)   audit   split + merge-integrity audit (no training)
     train      train + evaluate one config evaluate  re-evaluate a trained run      xai   explanation metrics
     run        prepare -> train -> xai -> figures
     suite      run an ablation set (ladder | pool_ladder | recipe | backbones | pairing); resumable, optional --seeds
+    experiments  the whole programme on every dataset that is available (VinDr, CMMD, ultrasound pools, external test); resumable, --list to preview
     literature compare a run with published results (protocol flags)
     figures    paper figures (data plots; --tex for the TikZ diagrams and the corrections table)
     smoke      the whole pipeline on synthetic data, CPU, ~1-2 min: run this first on a new machine
@@ -115,7 +116,11 @@ def cmd_prepare(a):
     from mmibc.pipeline import prepare
 
     cfg = _cfg(a)
-    prepare(cfg, _paths(a, cfg), tuple({"all": ("vindr", "ultrasound"), "vindr": ("vindr",), "us": ("ultrasound",), "ultrasound": ("ultrasound",)}[a.what]), a.force)
+    paths = _paths(a, cfg)
+    which = {"all": ("vindr", "ultrasound"), "vindr": ("vindr",), "us": ("ultrasound",), "ultrasound": ("ultrasound",), "cmmd": ("cmmd",)}[a.what]
+    if a.what == "all" and (paths.raw / "cmmd").exists():  # CMMD is optional: `all` includes it only when it has been downloaded
+        which = (*which, "cmmd")
+    prepare(cfg, paths, which, a.force)
     return 0
 
 
@@ -177,7 +182,10 @@ def cmd_run(a):
 
     cfg = _cfg(a)
     paths = _paths(a, cfg)
-    need = [n for n, d in (("vindr", "vindr"), ("ultrasound", "ultrasound")) if not (paths.processed / d / "manifest.csv").exists() and (n == "vindr" or cfg.task.kind == "synthetic_pairs")]
+    from mmibc.pipeline import mammo_source_of
+
+    wanted = [mammo_source_of(cfg), *(["ultrasound"] if cfg.task.kind == "synthetic_pairs" else [])]
+    need = [n for n in wanted if not (paths.processed / n / "manifest.csv").exists()]
     if need:
         log.info("preparing %s", need)
         prepare(cfg, paths, tuple(need))
@@ -205,6 +213,20 @@ def cmd_suite(a):
     res = run_suite(a.name, paths, cfg_over, a.only or None, a.seeds or None, a.force)
     print(res.to_string(index=False))
     return 0
+
+
+def cmd_experiments(a):
+    from mmibc.experiments import run_program
+    from mmibc.utils.config import load_config
+
+    paths = _paths(a, load_config(None, list(a.set)))
+    summary, rc = run_program(a.program, paths, list(a.set), a.only or None, a.skip or None, a.suites, a.xai, a.force, a.seeds or None, a.list)
+    cols = ["track", "plan", "data"] if a.list else ["track", "state", "auroc", "auroc_lo", "auroc_hi", "ext_auroc", "auroc_D1", "auroc_D2", "minutes"]
+    shown = summary[[c for c in cols if c in summary.columns]] if len(summary) else summary
+    print(shown.to_string(index=False, float_format=lambda x: f"{x:.3f}", max_colwidth=90) if len(shown) else "(no tracks selected)")
+    if not a.list:
+        print(f"\nresults: {paths.runs / ('experiments_' + Path(a.program).stem)}  (summary.md, status.csv, plan.csv)")
+    return rc
 
 
 def cmd_literature(a):
@@ -274,6 +296,20 @@ def cmd_smoke(a):
         run_xai(cfg, paths, "test")
         runs[kind] = run_dir_for(cfg, paths)
         print(f"[ok] {kind}: test AUROC {res['splits']['test']['auroc']:.3f}")
+    if a.cmmd:  # CMMD on fake DICOMs written in the real layout (needs pydicom): biopsy-labelled mammograms, multiview and paired with ultrasound
+        from mmibc.data.synthetic import make_fake_cmmd
+
+        make_fake_cmmd(paths.raw)
+        prepare(load_config("smoke.yaml", base), paths, ("cmmd",))
+        cm = [*base, "data.mammo_source=cmmd", "data.us_sources=[busi]", "data.us_external_source=null"]
+        for kind, extra in (("multiview", []), ("synthetic_pairs", ["task.pair_mode=label_matched"])):
+            cfg = load_config("smoke.yaml", [*cm, f"task.kind={kind}", f"run_name=smoke_cmmd_{kind}", *extra])
+            res = run_experiment(cfg, paths)
+            assert res["splits"]["test"]["auroc"] == res["splits"]["test"]["auroc"], "NaN test AUROC"
+            assert "by_stratum" in res["splits"]["test"], "per-subset metrics missing"
+            run_xai(cfg, paths, "test")
+            runs[f"cmmd_{kind}"] = run_dir_for(cfg, paths)
+            print(f"[ok] cmmd {kind}: test AUROC {res['splits']['test']['auroc']:.3f}")
     made = make_figures(runs, work / "figures", splits_dir=paths.splits)
     print(f"[ok] {len(made)} figures -> {work / 'figures'}")
     print(f"SMOKE OK  (workdir {work})")
@@ -306,7 +342,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("prepare", help="raw -> processed (crop, downscale, manifests); resumable")
     _common(p)
-    p.add_argument("what", nargs="?", default="all", choices=["all", "vindr", "us", "ultrasound"])
+    p.add_argument("what", nargs="?", default="all", choices=["all", "vindr", "us", "ultrasound", "cmmd"])
     p.add_argument("--force", action="store_true")
     p.set_defaults(fn=cmd_prepare)
 
@@ -346,6 +382,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="re-evaluate finished runs (training always resumes)")
     p.set_defaults(fn=cmd_suite)
 
+    p = sub.add_parser("experiments", help="run every experiment on every dataset that is available (prepares what exists, skips what is missing); resumable")
+    _common(p, False)
+    p.add_argument("program", nargs="?", default="all", help="configs/programs/<name>.yaml or a path (default: all)")
+    p.add_argument("--set", nargs="*", default=[], metavar="KEY=VAL", help="overrides applied to every track, e.g. training.epochs=1 for a quick dry run")
+    p.add_argument("--only", nargs="*", default=[], help="track or group names (vindr | robust | cmmd | external | suites)")
+    p.add_argument("--skip", nargs="*", default=[], help="track or group names to leave out")
+    p.add_argument("--suites", action="store_true", help="also run the suite tracks (fusion ladders, backbone comparison)")
+    p.add_argument("--seeds", nargs="*", type=int, default=[], help="for suite tracks: repeat every row for these seeds")
+    p.add_argument("--xai", action="store_true", help="also compute explanation metrics for every run track (slower)")
+    p.add_argument("--force", action="store_true", help="re-evaluate finished runs (training always resumes)")
+    p.add_argument("--list", action="store_true", help="show the plan (datasets found, runs finished, tracks blocked) and exit; prepares and trains nothing")
+    p.set_defaults(fn=cmd_experiments)
+
     p = sub.add_parser("literature", help="comparison table against published results, with protocol-comparability flags")
     _common(p, False)
     p.add_argument("run_dir")
@@ -368,6 +417,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("smoke", help="end-to-end check on synthetic data (CPU)")
     p.add_argument("--workdir", default=None)
+    p.add_argument("--cmmd", action="store_true", help="also run the CMMD path on fake DICOMs (needs pydicom): proves DICOM reading, biopsy-labelled splits and per-subset metrics work here")
     p.set_defaults(fn=cmd_smoke)
     return ap
 

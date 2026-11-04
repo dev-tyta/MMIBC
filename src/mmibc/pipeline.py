@@ -10,16 +10,18 @@ from pathlib import Path
 import pandas as pd
 
 from mmibc.data.datasets import PairDataset, build_transforms, stream_size
-from mmibc.data.merge_audit import AuditConfig, AuditReport, audit_pairs, audit_ultrasound, audit_vindr
+from mmibc.data.merge_audit import AuditConfig, AuditReport, audit_cmmd, audit_pairs, audit_ultrasound, audit_vindr
 from mmibc.data.pairing import SyntheticResampler, load_real_pairs, make_native_multiview_pairs, make_synthetic_pairs
-from mmibc.data.splits import add_size_quantiles, assign_us_splits, assign_vindr_splits
+from mmibc.data.splits import add_size_quantiles, assign_cmmd_splits, assign_us_splits, assign_vindr_splits
+from mmibc.data.cmmd import prepare_cmmd
 from mmibc.data.manifests import BUILDERS, build_manifest
 from mmibc.data.ultrasound import load_source_manifest, prepare_ultrasound, scan_busi, scan_class_folders
 from mmibc.data.vindr import prepare_vindr
 from mmibc.utils.paths import ProjectPaths, stage_to_local
 
 log = logging.getLogger(__name__)
-VINDR, US = "vindr", "ultrasound"
+VINDR, US, CMMD = "vindr", "ultrasound", "cmmd"
+MAMMO_SOURCES = (VINDR, CMMD)
 
 
 # ----------------------------------------------------------------------------- prepare
@@ -49,6 +51,8 @@ def prepare(cfg, paths: ProjectPaths, which: tuple[str, ...] = (VINDR, US), forc
     d = cfg.data
     if VINDR in which:
         prepare_vindr(paths.raw / "vindr_images", paths.raw / "vindr_annotations", paths.processed / VINDR, int(d.store_long_side), bool(d.vindr.crop_breast), d.vindr.label_scheme, int(d.num_prepare_workers), force)
+    if CMMD in which:
+        prepare_cmmd(paths.raw / "cmmd", paths.processed / CMMD, int(d.store_long_side), bool(d.cmmd.crop_breast), int(d.num_prepare_workers), force)
     if US in which:
         prepare_ultrasound(scan_us_sources(cfg, paths), paths.processed / US, d.busi.label_scheme, int(d.store_long_side), bool(d.busi.inpaint_overlay), int(d.num_prepare_workers), force)
 
@@ -62,6 +66,33 @@ class Tables:
     vindr_root: Path
     us_root: Path | None
     audits: dict[str, AuditReport] = field(default_factory=dict)
+    mammo_source: str = VINDR  # which dataset fills the mammogram slot (``vindr`` holds the table of either source)
+
+
+def mammo_source_of(cfg) -> str:
+    src = str(cfg.data.get("mammo_source", VINDR))
+    if src not in MAMMO_SOURCES:
+        raise ValueError(f"data.mammo_source must be one of {MAMMO_SOURCES}, got '{src}'")
+    return src
+
+
+def select_us_sources(manifest: pd.DataFrame, cfg, where: Path | str = "") -> pd.DataFrame:
+    """Keep only the sources this configuration lists in ``data.us_sources``.
+
+    The processed ultrasound pool is shared by every experiment and may hold more sources than one configuration uses (BrEaST is added for the
+    external-test runs). Without this selection a pool run made AFTER such a ``prepare`` would silently train on the source that was meant to
+    stay out. A listed source that was never prepared is an error that says how to fix it.
+    """
+    wanted = [str(x) for x in cfg.data.us_sources]
+    have = set(manifest["source"].astype(str))
+    missing = [x for x in wanted if x not in have]
+    if missing:
+        raise ValueError(f"data.us_sources lists {missing}, which are not in the processed ultrasound pool {where} (it holds {sorted(have)}). "
+                         "Run `mmibc prepare us` with this configuration (and check that the raw folder exists).")
+    ext = cfg.data.us_external_source
+    if ext is not None and str(ext) not in wanted:
+        raise ValueError(f"data.us_external_source='{ext}' must also be listed in data.us_sources {wanted}")
+    return manifest[manifest["source"].astype(str).isin(wanted)].reset_index(drop=True)
 
 
 def build_tables(cfg, paths: ProjectPaths, stage: bool = True, need_us: bool | None = None) -> Tables:
@@ -71,14 +102,21 @@ def build_tables(cfg, paths: ProjectPaths, stage: bool = True, need_us: bool | N
     out = paths.splits
     out.mkdir(parents=True, exist_ok=True)
 
-    vsrc = paths.processed / VINDR
-    vroot = stage_to_local(vsrc, paths.local_processed / VINDR) if stage else vsrc
+    mammo = mammo_source_of(cfg)
+    vsrc = paths.processed / mammo
+    if not (vsrc / "manifest.csv").exists():
+        raise FileNotFoundError(f"{vsrc / 'manifest.csv'} is missing: run `mmibc prepare {mammo}` first")
+    vroot = stage_to_local(vsrc, paths.local_processed / mammo) if stage else vsrc
     split_seed = int(cfg.seed if cfg.data.get("split_seed") is None else cfg.data.split_seed)
-    vind = assign_vindr_splits(pd.read_csv(vsrc / "manifest.csv"), float(cfg.data.vindr.val_fraction), split_seed)
+    if mammo == CMMD:
+        c = cfg.data.cmmd
+        vind = assign_cmmd_splits(pd.read_csv(vsrc / "manifest.csv"), float(c.val_fraction), float(c.test_fraction), split_seed, list(c.subsets))
+    else:
+        vind = assign_vindr_splits(pd.read_csv(vsrc / "manifest.csv"), float(cfg.data.vindr.val_fraction), split_seed)
     vind = add_size_quantiles(vind)
     findings = pd.read_csv(vsrc / "findings.csv")
-    audits = {"vindr": audit_vindr(vind, vroot, findings, acfg)}
-    vind.to_csv(out / "vindr_split.csv", index=False)
+    audits = {mammo: (audit_cmmd if mammo == CMMD else audit_vindr)(vind, vroot, findings, acfg)}
+    vind.to_csv(out / f"{mammo}_split.csv", index=False)
 
     us = us_root = None
     if need_us:
@@ -86,7 +124,7 @@ def build_tables(cfg, paths: ProjectPaths, stage: bool = True, need_us: bool | N
         us_root = stage_to_local(usrc, paths.local_processed / US) if stage else usrc
         ext = cfg.data.us_external_source
         us = assign_us_splits(
-            pd.read_csv(usrc / "manifest.csv"), float(cfg.data.busi.val_fraction), float(cfg.data.busi.test_fraction), split_seed,
+            select_us_sources(pd.read_csv(usrc / "manifest.csv"), cfg, usrc), float(cfg.data.busi.val_fraction), float(cfg.data.busi.test_fraction), split_seed,
             bool(cfg.data.busi.dedupe), int(cfg.data.busi.dup_hamming), ext,
         )
         us = add_size_quantiles(us)
@@ -98,7 +136,7 @@ def build_tables(cfg, paths: ProjectPaths, stage: bool = True, need_us: bool | N
         log.info("audit %-11s %s (%d errors, %d warnings) -> %s", name, "PASS" if rep.ok else "FAIL", len(rep.errors), len(rep.warnings), out / f"audit_{name}.md")
         if cfg.audit.stop_on_error:
             rep.raise_if_errors()
-    return Tables(vind, us, findings, vroot, us_root, audits)
+    return Tables(vind, us, findings, vroot, us_root, audits, mammo)
 
 
 # ----------------------------------------------------------------------------- pairs and datasets
@@ -134,6 +172,8 @@ def build_pair_sets(cfg, tables: Tables, paths: ProjectPaths) -> PairSets:
         if tables.us is None:
             raise ValueError("synthetic_pairs needs the ultrasound pool: run `mmibc prepare us` first")
         a_df, b_df, ra, rb = tables.vindr, tables.us, tables.vindr_root, tables.us_root
+        if mode == "size_conditioned" and a_df["size_q"].isna().all():
+            raise ValueError(f"pair_mode 'size_conditioned' matches lesion sizes, and the '{tables.mammo_source}' mammograms carry none (CMMD ships no lesion boxes). Use label_matched.")
         tabs = {s: make_synthetic_pairs(a_df, b_df, s, mode, seed_eval, replace=False) for s in ("val", "test")}
         tabs["train"] = make_synthetic_pairs(a_df, b_df, "train", mode, int(cfg.seed), replace=True)
         resampler = SyntheticResampler(a_df, b_df, "train", mode, int(cfg.seed) * 7919, True) if cfg.task.resample_each_epoch else None

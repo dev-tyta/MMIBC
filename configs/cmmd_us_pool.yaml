@@ -1,0 +1,14 @@
+# CMMD mammograms x the ultrasound pool, paired by label. Both modalities now carry BIOPSY labels, so "same label" means the same
+# thing on both sides (with VinDr the mammogram label is BI-RADS suspicion, the ultrasound label is pathology).
+# Pairs are still synthetic: different patients, same label (see the pairing controls). CMMD has no lesion boxes, so pair_mode
+# size_conditioned is refused for it; use label_matched / random / shuffled_partner. For a shortcut-free number add --set data.cmmd.subsets=[D1]
+run_name: cmmd_us_${model.fusion}_s${seed}   # run_dir_for appends the pair mode and the backbone
+task:
+  kind: synthetic_pairs
+  pair_mode: label_matched
+model:
+  shared_backbone: false
+  fusion: xattn
+data:
+  mammo_source: cmmd
+  us_sources: [busi, bus_bra]

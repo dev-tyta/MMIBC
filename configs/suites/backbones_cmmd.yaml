@@ -1,0 +1,14 @@
+# Backbone bake-off on CMMD (biopsy-labelled mammograms; native CC <-> MLO pairs), fusion held fixed (xattn). The same six backbones as
+# backbones.yaml, on the data whose labels are pathology rather than BI-RADS. DINOv3 repositories are GATED: accept the licence on
+# Hugging Face and provide HF_TOKEN; until then those rows are SKIPPED (not failed) and the next call of this command runs only them.
+# CMMD's two subsets differ hugely in malignant rate (see cmmd_multiview.yaml): for a shortcut-free comparison add  --set data.cmmd.subsets=[D1]
+config: cmmd_multiview.yaml
+reference: dinov2_base
+continue_on_error: true
+runs:
+  - {name: dinov2_base,      set: [model.backbone=dinov2_base]}
+  - {name: dinov2reg_base,   set: [model.backbone=dinov2reg_base]}
+  - {name: dinov3_vitb16,    set: [model.backbone=dinov3_vitb16]}
+  - {name: dinov3_vitl16,    set: [model.backbone=dinov3_vitl16, training.batch_size=16]}
+  - {name: tv_convnext_base, set: [model.backbone=tv_convnext_base, training.lr_backbone=5.0e-5]}
+  - {name: tv_efficientnet_b5, set: [model.backbone=tv_efficientnet_b5, training.lr_backbone=5.0e-5]}

@@ -47,14 +47,17 @@ def make_native_multiview_pairs(table: pd.DataFrame) -> pd.DataFrame:
         raise AssertionError("CC and MLO of the same breast carry different labels: breast-level labelling is inconsistent")
     if not (m["split_a"] == m["split_b"]).all():
         raise AssertionError("CC and MLO of the same breast fall in different splits")
+    grp = m["group_a"] if "group_a" in m else "vindr:" + m["study_id_a"]
     out = pd.DataFrame(
         dict(
             pair_id=m["study_id_a"] + "_" + m["laterality_a"], uid_a=m["uid_a"], uid_b=m["uid_b"], path_a=m["proc_path_a"], path_b=m["proc_path_b"],
             label=m["label_a"].astype(int), label_a=m["label_a"].astype(int), label_b=m["label_b"].astype(int), split=m["split_a"],
-            pair_type="native_multiview", group_a="vindr:" + m["study_id_a"], group_b="vindr:" + m["study_id_a"],
+            pair_type="native_multiview", group_a=grp, group_b=grp,
         )
     )
-    return out[PAIR_COLS].reset_index(drop=True)
+    if "stratum_a" in m:  # e.g. the CMMD subset: carried through so evaluation can report it separately
+        out["stratum"] = m["stratum_a"].to_numpy()
+    return out[[*PAIR_COLS, *(["stratum"] if "stratum" in out else [])]].reset_index(drop=True)
 
 
 # ----------------------------------------------------------------------------- Tier 1b
@@ -165,7 +168,9 @@ def make_synthetic_pairs(a_df: pd.DataFrame, b_df: pd.DataFrame, split: str, mod
     )
     if shared_label:
         assert (out["label_a"] == out["label_b"]).all()
-    return out[PAIR_COLS].sample(frac=1.0, random_state=seed).reset_index(drop=True)
+    if "stratum" in A:  # the mammogram's stratum (e.g. CMMD subset), for per-stratum evaluation
+        out["stratum"] = A["stratum"].to_numpy()
+    return out[[*PAIR_COLS, *(["stratum"] if "stratum" in out else [])]].sample(frac=1.0, random_state=seed).reset_index(drop=True)
 
 
 class SyntheticResampler:

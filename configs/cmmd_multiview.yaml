@@ -1,0 +1,14 @@
+# Native CC <-> MLO pairs of the SAME breast on CMMD (Chinese Mammography Database, TCIA): DICOM, BIOPSY-confirmed benign / malignant.
+# The pathology counterpart of vindr_multiview.yaml, whose labels are BI-RADS suspicion. Needs `mmibc prepare cmmd` (pydicom).
+#
+# CMMD has no official split: train / val / test are carved BY PATIENT (data.cmmd.*_fraction).
+# CAUTION - subset shortcut: D1 is ~51 % malignant, D2 ~98 %. A model can score well by recognising the subset. The audit warns
+# (`subset_shortcut`) and metrics.json holds AUROC per subset (`by_stratum`). For a shortcut-free number add:  --set data.cmmd.subsets=[D1]
+run_name: cmmd_${task.kind}_${model.fusion}_s${seed}
+task:
+  kind: multiview
+model:
+  shared_backbone: true
+  fusion: xattn
+data:
+  mammo_source: cmmd

@@ -22,12 +22,14 @@ dependencies = [
     "omegaconf>=2.3",
     "tqdm",
     "matplotlib",
+    "tabulate",
 ]
 
 [project.optional-dependencies]
 download = ["kagglehub>=1.0.3", "requests"]
 cv = ["opencv-python-headless"]
-dev = ["pytest"]
+dicom = ["pydicom>=2.4", "openpyxl"]          # CMMD: DICOM mammograms + the clinical spreadsheet
+dev = ["pytest", "pydicom>=2.4", "openpyxl"]
 
 [project.scripts]
 mmibc = "mmibc.cli:main"
